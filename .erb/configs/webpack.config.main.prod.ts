@@ -44,6 +44,8 @@ const configuration: webpack.Configuration = {
   },
 
   plugins: [
+    // `pg` optionally requires the native libpq binding; we use the pure-JS driver.
+    new webpack.IgnorePlugin({ resourceRegExp: /^pg-native$/ }),
     new BundleAnalyzerPlugin({
       analyzerMode: process.env.ANALYZE === 'true' ? 'server' : 'disabled',
       analyzerPort: 8888,

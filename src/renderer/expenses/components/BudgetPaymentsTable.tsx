@@ -22,6 +22,7 @@ export default function BudgetPaymentsTable({
       <table className="expense-table budget-ledger-table">
         <thead>
           <tr>
+            <th>SERIAL NO.</th>
             <th>DATE RECEIVED</th>
             <th>PAID BY</th>
             <th>PAYMENT METHOD</th>
@@ -31,8 +32,9 @@ export default function BudgetPaymentsTable({
           </tr>
         </thead>
         <tbody>
-          {payments.map((payment) => (
+          {payments.map((payment, index) => (
             <tr key={payment.id}>
+              <td>{index + 1}</td>
               <td className="date-cell">{formatDate(payment.date)}</td>
               <td className="ledger-description">
                 {payment.paidBy || 'Company'}

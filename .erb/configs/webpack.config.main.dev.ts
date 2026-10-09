@@ -37,6 +37,8 @@ const configuration: webpack.Configuration = {
   },
 
   plugins: [
+    // `pg` optionally requires the native libpq binding; we use the pure-JS driver.
+    new webpack.IgnorePlugin({ resourceRegExp: /^pg-native$/ }),
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     new BundleAnalyzerPlugin({

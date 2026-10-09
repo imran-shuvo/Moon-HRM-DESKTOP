@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
-import ExpenseTable from './ExpenseTable';
+import ExpenseListTable from './ExpenseListTable';
+import { BudgetTransaction, Expense, formatCurrency, todayKey } from '../model';
 import {
-  BudgetTransaction,
-  createBudgetLedger,
-  Expense,
-  formatCurrency,
-  todayKey,
-} from '../model';
+  PrintableReport,
+  PrintableReportData,
+  createPrintableReportData,
+} from './ReportExportPanel';
+import ExportPreviewDialog from './ExportPreviewDialog';
 
 type Period = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -60,137 +60,184 @@ function formatRange(start: string, end: string, period: Period) {
 export default function ReportPanel({
   expenses,
   payments,
-  onEdit,
-  onDelete,
-  onExport,
+  onSelect,
+  onExportPdf,
 }: {
   expenses: Expense[];
   payments: BudgetTransaction[];
-  onEdit: (expense: Expense) => void;
-  onDelete: (expense: Expense) => void;
-  onExport: (
-    expenses: Expense[],
-    title: string,
-    remainingById: Record<string, number>,
-  ) => void;
+  onSelect: (expense: Expense) => void;
+  onExportPdf: (data: PrintableReportData) => void;
 }) {
   const [period, setPeriod] = useState<Period>('monthly');
   const [anchor, setAnchor] = useState(todayKey());
   const [search, setSearch] = useState('');
+  const [previewData, setPreviewData] = useState<PrintableReportData>();
   const { start, end } = getRange(period, anchor);
-  const reportExpenses = useMemo(
-    () =>
-      expenses
-        .filter((expense) => expense.date >= start && expense.date <= end)
-        .sort((a, b) => a.date.localeCompare(b.date)),
-    [expenses, start, end],
+  const report = useMemo(
+    () => createPrintableReportData(expenses, payments, start, end),
+    [expenses, payments, start, end],
   );
-  const remainingById = useMemo(() => {
-    const balances: Record<string, number> = {};
-    createBudgetLedger(expenses, payments).forEach((entry) => {
-      if (entry.expense) balances[entry.expense.id] = entry.balance;
-    });
-    return balances;
-  }, [expenses, payments]);
+  const reportExpenses = report.expenses;
   const query = search.trim().toLowerCase();
   const visibleExpenses = reportExpenses.filter((expense) =>
-    `${expense.payee} ${expense.description} ${expense.category} ${expense.department}`
+    `${expense.payee} ${expense.invoiceNo} ${expense.particulars} ${expense.description} ${expense.projectName} ${expense.siteName} ${expense.vatNo} ${expense.type}`
       .toLowerCase()
       .includes(query),
   );
-  const total = reportExpenses.reduce(
-    (sum, expense) => sum + expense.amount,
-    0,
-  );
+  const total = report.totalExpenses;
   const label = formatRange(start, end, period);
+  const generatedAt = new Date();
+
+  function createReportData() {
+    return createPrintableReportData(
+      expenses,
+      payments,
+      start,
+      end,
+      `${period}-finance-report_${start}_to_${end}`,
+    );
+  }
 
   return (
     <>
-      <section className="report-summary panel">
-        <div className="report-date">
-          <span className="stat-icon violet">▦</span>
-          <div>
-            <p className="stat-label">{period} report</p>
-            <strong>{label}</strong>
+      <div className="report-document">
+        <header className="report-brand-header">
+          <div className="report-brand">
+            <div className="report-logo" aria-label="Moon company logo">
+              m<span>.</span>
+            </div>
+            <div>
+              <p className="report-company-name">
+                Moon Trading Contracting &amp; Cleaning
+              </p>
+              <p className="report-company-description">
+                Finance &amp; expense report
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="report-total">
-          <span>Total outflow</span>
-          <strong>{formatCurrency(total)}</strong>
-        </div>
-        <div className="report-total">
-          <span>Transactions</span>
-          <strong>{reportExpenses.length}</strong>
-        </div>
-      </section>
-      <section className="panel full-panel">
-        <div className="panel-heading report-controls">
-          <div>
-            <h2>{period[0].toUpperCase() + period.slice(1)} transaction log</h2>
-            <p>Balance shows received payments minus all expenses to date.</p>
+          <div className="report-generated">
+            <span>Generated</span>
+            <strong>
+              {generatedAt.toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </strong>
+            <strong>
+              {generatedAt.toLocaleTimeString(undefined, {
+                hour: 'numeric',
+                minute: '2-digit',
+              })}
+            </strong>
           </div>
-          <div className="transaction-filters">
-            <label className="filter-control" htmlFor="report-period">
-              Period
-              <select
-                aria-label="Report period"
-                id="report-period"
-                value={period}
-                onChange={(event) =>
-                  setPeriod(event.currentTarget.value as Period)
-                }
+        </header>
+        <section className="report-summary panel">
+          <div className="report-date">
+            <span className="stat-icon violet">▦</span>
+            <div>
+              <p className="stat-label">{period} report</p>
+              <strong>{label}</strong>
+            </div>
+          </div>
+          <div className="report-total">
+            <span>Total amount received</span>
+            <strong>{formatCurrency(report.totalReceived)}</strong>
+          </div>
+          <div className="report-total">
+            <span>Total expenses</span>
+            <strong>{formatCurrency(total)}</strong>
+          </div>
+          <div className="report-total">
+            <span>Total remaining</span>
+            <strong>{formatCurrency(report.remainingBudget)}</strong>
+          </div>
+        </section>
+        <section className="panel full-panel report-table-panel">
+          <div className="panel-heading report-controls">
+            <div>
+              <h2>
+                {period[0].toUpperCase() + period.slice(1)} transaction log
+              </h2>
+              <p>
+                {reportExpenses.length} expenses · total {formatCurrency(total)}
+              </p>
+            </div>
+            <div className="transaction-filters">
+              <label className="filter-control" htmlFor="report-period">
+                Period
+                <select
+                  aria-label="Report period"
+                  id="report-period"
+                  value={period}
+                  onChange={(event) =>
+                    setPeriod(event.currentTarget.value as Period)
+                  }
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </label>
+              <label className="filter-control" htmlFor="report-date">
+                Date
+                <input
+                  aria-label="Report date"
+                  id="report-date"
+                  type="date"
+                  value={anchor}
+                  onChange={(event) => setAnchor(event.currentTarget.value)}
+                />
+              </label>
+              <label className="search-box" htmlFor="report-search">
+                <span aria-hidden="true">⌕</span>
+                <input
+                  aria-label="Search report"
+                  id="report-search"
+                  placeholder="Search report"
+                  value={search}
+                  onChange={(event) => setSearch(event.currentTarget.value)}
+                />
+              </label>
+              <button
+                className="button button-secondary"
+                onClick={() => onExportPdf(createReportData())}
+                type="button"
               >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="yearly">Yearly</option>
-              </select>
-            </label>
-            <label className="filter-control" htmlFor="report-date">
-              Date
-              <input
-                aria-label="Report date"
-                id="report-date"
-                type="date"
-                value={anchor}
-                onChange={(event) => setAnchor(event.currentTarget.value)}
-              />
-            </label>
-            <label className="search-box" htmlFor="report-search">
-              <span aria-hidden="true">⌕</span>
-              <input
-                aria-label="Search report"
-                id="report-search"
-                placeholder="Search report"
-                value={search}
-                onChange={(event) => setSearch(event.currentTarget.value)}
-              />
-            </label>
-            <button
-              className="button button-secondary"
-              onClick={() =>
-                onExport(
-                  reportExpenses,
-                  `${period}-expense-report`,
-                  remainingById,
-                )
-              }
-              type="button"
-            >
-              ↓ Export report
-            </button>
+                ↓ Export PDF
+              </button>
+              <button
+                className="button button-secondary"
+                onClick={() => setPreviewData(createReportData())}
+                type="button"
+              >
+                Preview PDF
+              </button>
+            </div>
           </div>
-        </div>
-        <ExpenseTable
-          expenses={visibleExpenses}
-          onEdit={onEdit}
-          onDelete={onDelete}
-          remainingById={remainingById}
-        />
-        {visibleExpenses.length === 0 && (
-          <p className="empty-state">No expenses were found for this period.</p>
-        )}
-      </section>
+          <ExpenseListTable expenses={visibleExpenses} onSelect={onSelect} />
+          {visibleExpenses.length === 0 && (
+            <p className="empty-state">
+              No expenses were found for this period.
+            </p>
+          )}
+        </section>
+      </div>
+      {previewData && (
+        <ExportPreviewDialog
+          title="Preview finance report"
+          exportLabel="Save PDF"
+          error={undefined}
+          onClose={() => setPreviewData(undefined)}
+          onExport={() => {
+            onExportPdf(previewData);
+            setPreviewData(undefined);
+          }}
+        >
+          <PrintableReport data={previewData} />
+        </ExportPreviewDialog>
+      )}
     </>
   );
 }

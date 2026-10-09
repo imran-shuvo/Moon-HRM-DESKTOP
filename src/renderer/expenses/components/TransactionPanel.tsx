@@ -1,45 +1,33 @@
-import BudgetLedgerTable from './BudgetLedgerTable';
-import { BudgetLedgerEntry } from '../model';
+import { Expense } from '../model';
+import ExpenseListTable from './ExpenseListTable';
 
 export default function TransactionPanel({
-  entries,
+  expenses,
   month,
   payee,
-  department,
   search,
-  departments,
   payees,
   onMonthChange,
   onPayeeChange,
-  onDepartmentChange,
   onSearchChange,
-  onEditPayment,
-  onDeletePayment,
-  onEditExpense,
-  onDeleteExpense,
+  onSelect,
 }: {
-  entries: BudgetLedgerEntry[];
+  expenses: Expense[];
   month: string;
   payee: string;
-  department: string;
   search: string;
-  departments: string[];
   payees: string[];
   onMonthChange: (value: string) => void;
   onPayeeChange: (value: string) => void;
-  onDepartmentChange: (value: string) => void;
   onSearchChange: (value: string) => void;
-  onEditPayment: (entry: BudgetLedgerEntry) => void;
-  onDeletePayment: (entry: BudgetLedgerEntry) => void;
-  onEditExpense: (entry: BudgetLedgerEntry) => void;
-  onDeleteExpense: (entry: BudgetLedgerEntry) => void;
+  onSelect: (expense: Expense) => void;
 }) {
   return (
     <section className="panel full-panel">
       <div className="panel-heading transaction-heading">
         <div>
-          <h2>All transactions</h2>
-          <p>{entries.length} transactions match these filters</p>
+          <h2>All expenses</h2>
+          <p>{expenses.length} expense transactions match these filters</p>
         </div>
         <div className="transaction-filters">
           <label className="filter-control" htmlFor="transaction-month">
@@ -76,22 +64,6 @@ export default function TransactionPanel({
               ))}
             </select>
           </label>
-          <label className="filter-control" htmlFor="transaction-department">
-            Department
-            <select
-              aria-label="Filter by department"
-              id="transaction-department"
-              value={department}
-              onChange={(event) =>
-                onDepartmentChange(event.currentTarget.value)
-              }
-            >
-              <option value="">All departments</option>
-              {departments.map((name) => (
-                <option key={name}>{name}</option>
-              ))}
-            </select>
-          </label>
           <label className="search-box" htmlFor="transaction-search">
             <span aria-hidden="true">⌕</span>
             <input
@@ -99,20 +71,14 @@ export default function TransactionPanel({
               id="transaction-search"
               value={search}
               onChange={(event) => onSearchChange(event.currentTarget.value)}
-              placeholder="Search transactions"
+              placeholder="Search expenses"
             />
           </label>
         </div>
       </div>
-      <BudgetLedgerTable
-        entries={entries}
-        onEditPayment={onEditPayment}
-        onDeletePayment={onDeletePayment}
-        onEditExpense={onEditExpense}
-        onDeleteExpense={onDeleteExpense}
-      />
-      {entries.length === 0 && (
-        <p className="empty-state">No transactions match these filters.</p>
+      <ExpenseListTable expenses={expenses} onSelect={onSelect} />
+      {expenses.length === 0 && (
+        <p className="empty-state">No expenses match these filters.</p>
       )}
     </section>
   );

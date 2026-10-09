@@ -1,4 +1,5 @@
 import { FormEvent, useState } from 'react';
+import { errorMessage } from '../../data/FinanceApiContext';
 import { Expense } from '../model';
 
 type ListKind = 'category' | 'department';
@@ -14,15 +15,29 @@ function ListEditor({
   kind: ListKind;
   items: string[];
   expenses: Expense[];
-  onAdd: (value: string) => void;
-  onRename: (oldValue: string, newValue: string) => void;
-  onDelete: (value: string) => void;
+  onAdd: (value: string) => Promise<void>;
+  onRename: (oldValue: string, newValue: string) => Promise<void>;
+  onDelete: (value: string) => Promise<void>;
 }) {
   const label = kind === 'category' ? 'Category' : 'Department';
   const [newValue, setNewValue] = useState('');
   const [editing, setEditing] = useState('');
   const [editValue, setEditValue] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function run(action: () => Promise<void>, onSuccess?: () => void) {
+    setBusy(true);
+    try {
+      await action();
+      setError('');
+      onSuccess?.();
+    } catch (actionError) {
+      setError(errorMessage(actionError, 'The change could not be saved.'));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function submitNew(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -32,9 +47,10 @@ function ListEditor({
       setError(`${label} already exists.`);
       return;
     }
-    onAdd(value);
-    setNewValue('');
-    setError('');
+    run(
+      () => onAdd(value),
+      () => setNewValue(''),
+    );
   }
 
   function submitEdit(event: FormEvent<HTMLFormElement>) {
@@ -51,9 +67,10 @@ function ListEditor({
       setError(`${label} already exists.`);
       return;
     }
-    onRename(editing, value);
-    setEditing('');
-    setError('');
+    run(
+      () => onRename(editing, value),
+      () => setEditing(''),
+    );
   }
 
   function usageCount(value: string) {
@@ -76,8 +93,7 @@ function ListEditor({
       );
       return;
     }
-    onDelete(value);
-    setError('');
+    run(() => onDelete(value));
   }
 
   return (
@@ -99,7 +115,7 @@ function ListEditor({
           placeholder={`Add ${label.toLowerCase()}`}
           value={newValue}
         />
-        <button className="button button-primary" type="submit">
+        <button className="button button-primary" disabled={busy} type="submit">
           Add
         </button>
       </form>
@@ -122,7 +138,7 @@ function ListEditor({
                   onChange={(event) => setEditValue(event.currentTarget.value)}
                   value={editValue}
                 />
-                <button className="table-action" type="submit">
+                <button className="table-action" disabled={busy} type="submit">
                   Save
                 </button>
                 <button
@@ -154,6 +170,7 @@ function ListEditor({
                   <button
                     aria-label={`Delete ${item}`}
                     className="table-action delete-action"
+                    disabled={busy}
                     onClick={() => deleteItem(item)}
                     type="button"
                   >
@@ -183,12 +200,12 @@ export default function CategoryDepartmentManager({
   categories: string[];
   departments: string[];
   expenses: Expense[];
-  onAddCategory: (value: string) => void;
-  onRenameCategory: (oldValue: string, newValue: string) => void;
-  onDeleteCategory: (value: string) => void;
-  onAddDepartment: (value: string) => void;
-  onRenameDepartment: (oldValue: string, newValue: string) => void;
-  onDeleteDepartment: (value: string) => void;
+  onAddCategory: (value: string) => Promise<void>;
+  onRenameCategory: (oldValue: string, newValue: string) => Promise<void>;
+  onDeleteCategory: (value: string) => Promise<void>;
+  onAddDepartment: (value: string) => Promise<void>;
+  onRenameDepartment: (oldValue: string, newValue: string) => Promise<void>;
+  onDeleteDepartment: (value: string) => Promise<void>;
 }) {
   return (
     <section

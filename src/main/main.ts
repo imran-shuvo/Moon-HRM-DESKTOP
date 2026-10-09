@@ -9,26 +9,48 @@
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
 import path from 'path';
-import { app, BrowserWindow, shell, ipcMain } from 'electron';
-import { autoUpdater } from 'electron-updater';
+import { app, BrowserWindow, safeStorage, shell } from 'electron';
 import log from 'electron-log';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
+import SettingsStore from './settingsStore';
+import ConnectionManager from './db/connection';
+import BackupService from './backup/backupService';
+import registerIpcHandlers from './ipc';
 
-class AppUpdater {
-  constructor() {
-    log.transports.file.level = 'info';
-    autoUpdater.logger = log;
-    autoUpdater.checkForUpdatesAndNotify();
-  }
-}
+log.transports.file.level = 'info';
 
 let mainWindow: BrowserWindow | null = null;
 
-ipcMain.on('ipc-example', async (event, arg) => {
-  const msgTemplate = (pingPong: string) => `IPC test: ${pingPong}`;
-  console.log(msgTemplate(arg));
-  event.reply('ipc-example', msgTemplate('pong'));
+const settingsStore = new SettingsStore(
+  path.join(app.getPath('userData'), 'settings.json'),
+  {
+    isAvailable: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (value) => safeStorage.encryptString(value),
+    decrypt: (value) => safeStorage.decryptString(value),
+  },
+);
+
+const connection = new ConnectionManager(settingsStore);
+
+const backupService = new BackupService({
+  getDb: () => connection.getDb(),
+  store: settingsStore,
+  appVersion: app.getVersion(),
+  defaultDirectory: path.join(app.getPath('documents'), 'Moon Finance Backups'),
+  log: (message, error) =>
+    error ? log.error(message, error) : log.info(message),
+});
+
+connection.onConnected(() => {
+  log.info('Connected to PostgreSQL; automatic backups scheduled.');
+  backupService.startScheduler();
+});
+
+registerIpcHandlers({
+  connection,
+  backups: backupService,
+  getWindow: () => mainWindow,
 });
 
 if (process.env.NODE_ENV === 'production') {
@@ -75,6 +97,9 @@ const createWindow = async () => {
     height: 728,
     icon: getAssetPath('icon.png'),
     webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
       preload: app.isPackaged
         ? path.join(__dirname, 'preload.js')
         : path.join(__dirname, '../../.erb/dll/preload.js'),
@@ -101,15 +126,11 @@ const createWindow = async () => {
   const menuBuilder = new MenuBuilder(mainWindow);
   menuBuilder.buildMenu();
 
-  // Open urls in the user's browser
+  // Open web links in the user's browser; never hand other schemes to the OS.
   mainWindow.webContents.setWindowOpenHandler((edata) => {
-    shell.openExternal(edata.url);
+    if (/^https?:/.test(edata.url)) shell.openExternal(edata.url);
     return { action: 'deny' };
   });
-
-  // Remove this if your app does not use auto updates
-  // eslint-disable-next-line
-  new AppUpdater();
 };
 
 /**
@@ -124,9 +145,26 @@ app.on('window-all-closed', () => {
   }
 });
 
+let quitting = false;
+app.on('before-quit', (event) => {
+  if (quitting) return;
+  event.preventDefault();
+  quitting = true;
+  backupService.stopScheduler();
+  connection
+    .close()
+    .then(() => app.quit())
+    .catch((error) => {
+      log.error('Error closing the database', error);
+      app.quit();
+    });
+});
+
 app
   .whenReady()
-  .then(() => {
+  .then(async () => {
+    // Connect before the window loads so the UI can show data immediately.
+    await connection.connectOnStartup();
     createWindow();
     app.on('activate', () => {
       // On macOS it's common to re-create a window in the app when the

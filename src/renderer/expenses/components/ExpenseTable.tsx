@@ -1,4 +1,4 @@
-import { Expense, formatCurrency } from '../model';
+import { Expense, formatCurrency, getExpenseTotal } from '../model';
 
 function formatDate(value: string) {
   const date = new Date(`${value}T12:00:00`);
@@ -15,19 +15,7 @@ function initials(name: string) {
     .toUpperCase();
 }
 
-export default function ExpenseTable({
-  expenses,
-  onEdit,
-  onDelete,
-  remainingById,
-}: {
-  expenses: Expense[];
-  onEdit: ((expense: Expense) => void) | undefined;
-  onDelete: ((expense: Expense) => void) | undefined;
-  remainingById: Record<string, number> | undefined;
-}) {
-  const canManage = Boolean(onEdit && onDelete);
-
+export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   return (
     <div className="table-scroll">
       <table className="expense-table">
@@ -39,8 +27,6 @@ export default function ExpenseTable({
             <th>DEPARTMENT</th>
             <th>PAYMENT</th>
             <th className="amount-cell">AMOUNT</th>
-            {remainingById && <th className="amount-cell">REMAINING</th>}
-            {canManage && <th className="actions-cell">ACTIONS</th>}
           </tr>
         </thead>
         <tbody>
@@ -53,7 +39,7 @@ export default function ExpenseTable({
                   </span>
                   <span className="payee-copy">
                     <strong>{expense.payee}</strong>
-                    <span>{expense.description}</span>
+                    <span>{expense.particulars || expense.description}</span>
                   </span>
                 </div>
               </td>
@@ -67,32 +53,9 @@ export default function ExpenseTable({
               </td>
               <td className="department-cell">{expense.department}</td>
               <td className="payment-cell">{expense.paymentMethod}</td>
-              <td className="amount-cell">{formatCurrency(expense.amount)}</td>
-              {remainingById && (
-                <td className="amount-cell remaining-cell">
-                  {formatCurrency(remainingById[expense.id] ?? 0)}
-                </td>
-              )}
-              {canManage && (
-                <td className="actions-cell">
-                  <button
-                    aria-label={`Edit ${expense.payee} - ${expense.description}`}
-                    className="table-action"
-                    onClick={() => onEdit?.(expense)}
-                    type="button"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    aria-label={`Delete ${expense.payee} - ${expense.description}`}
-                    className="table-action delete-action"
-                    onClick={() => onDelete?.(expense)}
-                    type="button"
-                  >
-                    Delete
-                  </button>
-                </td>
-              )}
+              <td className="amount-cell">
+                {formatCurrency(getExpenseTotal(expense))}
+              </td>
             </tr>
           ))}
         </tbody>

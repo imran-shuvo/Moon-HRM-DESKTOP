@@ -1,4 +1,4 @@
-import { Section } from '../model';
+import { formatCurrency, Section } from '../model';
 
 const NAVIGATION: { label: Section; icon: string }[] = [
   { label: 'Overview', icon: '◫' },
@@ -6,24 +6,20 @@ const NAVIGATION: { label: Section; icon: string }[] = [
   { label: 'Budgets', icon: '▥' },
   { label: 'Reports', icon: '▤' },
   { label: 'Settings', icon: '⚙' },
+  { label: 'Backup', icon: '⛁' },
 ];
 
 export default function Sidebar({
   section,
   onSelect,
   budget,
-  spent,
   transactionCount,
 }: {
   section: Section;
   onSelect: (section: Section) => void;
   budget: number;
-  spent: number;
   transactionCount: number;
 }) {
-  const budgetUsage = budget > 0 ? Math.min((spent / budget) * 100, 100) : 0;
-  const available = budget - spent;
-
   return (
     <aside className="sidebar">
       <div className="brand-lockup">
@@ -58,30 +54,13 @@ export default function Sidebar({
       <div className="sidebar-bottom">
         <div className="budget-widget">
           <div className="budget-widget-title">
-            <span>Available balance</span>
+            <span>Budget available this month</span>
             <span aria-hidden="true">↗</span>
           </div>
-          <strong>
-            {new Intl.NumberFormat('en-US', {
-              style: 'currency',
-              currency: 'USD',
-              maximumFractionDigits: 2,
-            }).format(available)}
-          </strong>
-          <div className="budget-widget-progress">
-            <span style={{ width: `${budgetUsage}%` }} />
-          </div>
+          <strong>{formatCurrency(budget)}</strong>
           <span className="budget-widget-caption">
-            {budgetUsage.toFixed(0)}% of received funds used
+            Includes previous remaining budget
           </span>
-        </div>
-        <div className="user-profile">
-          <div className="profile-avatar">AM</div>
-          <div className="profile-copy">
-            <strong>Alex Morgan</strong>
-            <span>Finance manager</span>
-          </div>
-          <span className="profile-menu">···</span>
         </div>
       </div>
     </aside>

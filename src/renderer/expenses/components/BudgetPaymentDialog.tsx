@@ -1,4 +1,6 @@
 import { FormEvent, useState } from 'react';
+import { BudgetTransactionInput } from '../../../shared/types';
+import { errorMessage } from '../../data/FinanceApiContext';
 import { BudgetTransaction, todayKey } from '../model';
 
 export default function BudgetPaymentDialog({
@@ -8,11 +10,12 @@ export default function BudgetPaymentDialog({
 }: {
   payment: BudgetTransaction | undefined;
   onClose: () => void;
-  onSubmit: (payment: Omit<BudgetTransaction, 'id'>) => void;
+  onSubmit: (payment: BudgetTransactionInput) => Promise<void>;
 }) {
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const amount = Number(form.get('amount'));
@@ -25,13 +28,25 @@ export default function BudgetPaymentDialog({
       setError('Choose Cash or Card as the payment method.');
       return;
     }
-    onSubmit({
-      date: String(form.get('date')),
-      amount,
-      paidBy: String(form.get('paidBy')).trim(),
-      paymentMethod,
-      note: String(form.get('note')).trim(),
-    });
+    setSaving(true);
+    setError('');
+    try {
+      await onSubmit({
+        date: String(form.get('date')),
+        amount,
+        paidBy: String(form.get('paidBy')).trim(),
+        paymentMethod,
+        note: String(form.get('note')).trim(),
+      });
+    } catch (submitError) {
+      setError(
+        errorMessage(
+          submitError,
+          'Could not save the payment. Please try again.',
+        ),
+      );
+      setSaving(false);
+    }
   }
 
   return (
@@ -76,7 +91,7 @@ export default function BudgetPaymentDialog({
             <label className="form-field" htmlFor="budget-payment-amount">
               Amount received
               <span className="input-with-prefix">
-                <span>$</span>
+                <span>SAR</span>
                 <input
                   aria-label="Payment amount"
                   id="budget-payment-amount"
@@ -133,12 +148,17 @@ export default function BudgetPaymentDialog({
           <div className="dialog-actions">
             <button
               className="button button-secondary"
+              disabled={saving}
               onClick={onClose}
               type="button"
             >
               Cancel
             </button>
-            <button className="button button-primary" type="submit">
+            <button
+              className="button button-primary"
+              disabled={saving}
+              type="submit"
+            >
               {payment ? 'Save changes' : 'Save payment'}
             </button>
           </div>

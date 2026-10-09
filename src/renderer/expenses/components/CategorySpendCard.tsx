@@ -1,4 +1,4 @@
-import { Budget, Expense, formatCurrency } from '../model';
+import { Budget, Expense, formatCurrency, getExpenseTotal } from '../model';
 
 export default function CategorySpendCard({
   budgets,
@@ -11,7 +11,7 @@ export default function CategorySpendCard({
     ...budget,
     spent: expenses
       .filter((expense) => expense.category === budget.category)
-      .reduce((total, expense) => total + expense.amount, 0),
+      .reduce((total, expense) => total + getExpenseTotal(expense), 0),
   }));
   const total = categoryTotals.reduce((sum, budget) => sum + budget.spent, 0);
   let offset = 0;

@@ -1,29 +1,65 @@
-// Disable no-unused-vars, broken for spread args
-/* eslint no-unused-vars: off */
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
+import IPC from '../shared/ipcChannels';
+import { FinanceApi, IpcResult } from '../shared/types';
 
-export type Channels = 'ipc-example';
+/** Invokes a main-process handler and turns an error result into a throw. */
+async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
+  const result = (await ipcRenderer.invoke(channel, ...args)) as IpcResult<T>;
+  if (!result.ok) {
+    const error = new Error(result.error.message);
+    error.name = result.error.code;
+    throw error;
+  }
+  return result.data;
+}
 
-const electronHandler = {
-  ipcRenderer: {
-    sendMessage(channel: Channels, ...args: unknown[]) {
-      ipcRenderer.send(channel, ...args);
-    },
-    on(channel: Channels, func: (...args: unknown[]) => void) {
-      const subscription = (_event: IpcRendererEvent, ...args: unknown[]) =>
-        func(...args);
-      ipcRenderer.on(channel, subscription);
-
-      return () => {
-        ipcRenderer.removeListener(channel, subscription);
-      };
-    },
-    once(channel: Channels, func: (...args: unknown[]) => void) {
-      ipcRenderer.once(channel, (_event, ...args) => func(...args));
-    },
+const financeApi: FinanceApi = {
+  database: {
+    status: () => invoke(IPC.dbStatus),
+    test: (settings) => invoke(IPC.dbTest, settings),
+    connect: (settings) => invoke(IPC.dbConnect, settings),
+  },
+  data: {
+    load: () => invoke(IPC.dataLoad),
+    importLegacy: (payload) => invoke(IPC.dataImportLegacy, payload),
+  },
+  expenses: {
+    create: (input, files) => invoke(IPC.expenseCreate, input, files),
+    update: (id, input, files) => invoke(IPC.expenseUpdate, id, input, files),
+    remove: (id) => invoke(IPC.expenseDelete, id),
+    attachment: (id) => invoke(IPC.expenseAttachment, id),
+    openAttachment: (id) => invoke(IPC.expenseOpenAttachment, id),
+  },
+  budgets: {
+    create: (input) => invoke(IPC.budgetCreate, input),
+    update: (id, input) => invoke(IPC.budgetUpdate, id, input),
+    remove: (id) => invoke(IPC.budgetDelete, id),
+  },
+  categories: {
+    add: (name) => invoke(IPC.categoryAdd, name),
+    rename: (previous, next) => invoke(IPC.categoryRename, previous, next),
+    remove: (name) => invoke(IPC.categoryDelete, name),
+  },
+  departments: {
+    add: (name) => invoke(IPC.departmentAdd, name),
+    rename: (previous, next) => invoke(IPC.departmentRename, previous, next),
+    remove: (name) => invoke(IPC.departmentDelete, name),
+  },
+  backup: {
+    settings: () => invoke(IPC.backupSettings),
+    updateSettings: (settings) => invoke(IPC.backupUpdateSettings, settings),
+    chooseDirectory: () => invoke(IPC.backupChooseDirectory),
+    openDirectory: () => invoke(IPC.backupOpenDirectory),
+    list: () => invoke(IPC.backupList),
+    create: () => invoke(IPC.backupCreate),
+    saveAs: () => invoke(IPC.backupSaveAs),
+    inspect: (path) => invoke(IPC.backupInspect, path),
+    chooseFile: () => invoke(IPC.backupChooseFile),
+    restore: (path) => invoke(IPC.backupRestore, path),
+  },
+  reports: {
+    savePdf: (fileName) => invoke(IPC.reportSavePdf, fileName),
   },
 };
 
-contextBridge.exposeInMainWorld('electron', electronHandler);
-
-export type ElectronHandler = typeof electronHandler;
+contextBridge.exposeInMainWorld('financeApi', financeApi);

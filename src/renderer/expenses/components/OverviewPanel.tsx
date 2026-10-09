@@ -2,82 +2,80 @@ import { Budget, Expense, formatCurrency } from '../model';
 import ExpenseTable from './ExpenseTable';
 import SpendChart from './SpendChart';
 import CategorySpendCard from './CategorySpendCard';
+import MonthlyExpensesTable from './MonthlyExpensesTable';
 
 export default function OverviewPanel({
   monthExpenses,
-  todayExpenses,
+  monthlyExpenseSummaries,
   budgets,
-  spent,
+  totalExpenses,
+  expenseCount,
+  totalBudget,
   remaining,
   budgetStatus,
-  todayTotal,
   recentExpenses,
   onShowTransactions,
 }: {
   monthExpenses: Expense[];
-  todayExpenses: Expense[];
+  monthlyExpenseSummaries: {
+    month: string;
+    total: number;
+    count: number;
+  }[];
   budgets: Budget[];
-  spent: number;
+  totalExpenses: number;
+  expenseCount: number;
+  totalBudget: number;
   remaining: number;
   budgetStatus: string;
-  todayTotal: number;
   recentExpenses: Expense[];
   onShowTransactions: () => void;
 }) {
   return (
     <>
-      <section className="stat-grid" aria-label="Monthly expense summary">
+      <section
+        className="stat-grid overview-total-grid"
+        aria-label="Company budget summary"
+      >
+        <article className="stat-card">
+          <div className="stat-top">
+            <span className="stat-icon green">◉</span>
+            <span className="stat-note">Available this month</span>
+          </div>
+          <p className="stat-label">Total budget</p>
+          <strong>{formatCurrency(totalBudget)}</strong>
+          <p className="stat-foot">
+            Previous remaining plus this month&apos;s receipts
+          </p>
+        </article>
         <article className="stat-card">
           <div className="stat-top">
             <span className="stat-icon violet">↗</span>
             <span className="stat-note positive">This month</span>
           </div>
-          <p className="stat-label">Total spent</p>
-          <strong>{formatCurrency(spent)}</strong>
+          <p className="stat-label">Total expenses</p>
+          <strong>{formatCurrency(totalExpenses)}</strong>
           <p className="stat-foot">
-            Across {monthExpenses.length} recorded transactions
+            Across {expenseCount} recorded transactions this month
           </p>
         </article>
         <article className="stat-card">
           <div className="stat-top">
-            <span className="stat-icon green">◉</span>
-            <span className="stat-note">Monthly limit</span>
+            <span className="stat-icon orange">◉</span>
+            <span className="stat-note">After this month&apos;s expenses</span>
           </div>
-          <p className="stat-label">
-            {remaining >= 0 ? 'Budget remaining' : 'Over budget'}
-          </p>
+          <p className="stat-label">Remaining budget</p>
           <strong className={remaining < 0 ? 'stat-overrun' : undefined}>
-            {formatCurrency(Math.abs(remaining))}
+            {formatCurrency(remaining)}
           </strong>
           <p className="stat-foot">{budgetStatus}</p>
-        </article>
-        <article className="stat-card">
-          <div className="stat-top">
-            <span className="stat-icon orange">▤</span>
-            <span className="stat-note">Today</span>
-          </div>
-          <p className="stat-label">Spent today</p>
-          <strong>{formatCurrency(todayTotal)}</strong>
-          <p className="stat-foot">{todayExpenses.length} transactions today</p>
-        </article>
-        <article className="stat-card">
-          <div className="stat-top">
-            <span className="stat-icon blue">⌁</span>
-            <span className="stat-note">All departments</span>
-          </div>
-          <p className="stat-label">Avg. transaction</p>
-          <strong>
-            {formatCurrency(
-              monthExpenses.length ? spent / monthExpenses.length : 0,
-            )}
-          </strong>
-          <p className="stat-foot">Month-to-date average</p>
         </article>
       </section>
       <section className="overview-grid">
         <SpendChart expenses={monthExpenses} />
         <CategorySpendCard budgets={budgets} expenses={monthExpenses} />
       </section>
+      <MonthlyExpensesTable months={monthlyExpenseSummaries} />
       <section className="panel transaction-panel">
         <div className="panel-heading">
           <div>
@@ -92,12 +90,7 @@ export default function OverviewPanel({
             View all <span aria-hidden="true">→</span>
           </button>
         </div>
-        <ExpenseTable
-          expenses={recentExpenses}
-          onEdit={undefined}
-          onDelete={undefined}
-          remainingById={undefined}
-        />
+        <ExpenseTable expenses={recentExpenses} />
       </section>
     </>
   );

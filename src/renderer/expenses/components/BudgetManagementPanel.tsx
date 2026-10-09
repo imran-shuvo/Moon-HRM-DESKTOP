@@ -1,51 +1,28 @@
 import { useMemo, useState } from 'react';
 import { BudgetTransaction, formatCurrency } from '../model';
 import BudgetPaymentsTable from './BudgetPaymentsTable';
-
-function exportBudgetCsv(payments: BudgetTransaction[]) {
-  const rows = [
-    ['Date', 'Amount', 'Paid by', 'Payment method', 'Note'],
-    ...payments.map((payment) => [
-      payment.date,
-      payment.amount.toFixed(2),
-      payment.paidBy ?? '',
-      payment.paymentMethod ?? '',
-      payment.note,
-    ]),
-  ];
-  const csv = rows
-    .map((row) =>
-      row.map((value) => `"${value.replaceAll('"', '""')}"`).join(','),
-    )
-    .join('\n');
-  const url = URL.createObjectURL(
-    new Blob([csv], { type: 'text/csv;charset=utf-8' }),
-  );
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'budget-payments.csv';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
+import BudgetPrintableReport, {
+  PrintableBudgetReportData,
+} from './BudgetPrintableReport';
+import ExportPreviewDialog from './ExportPreviewDialog';
 
 export default function BudgetManagementPanel({
   payments,
-  balance,
   onAddPayment,
   onEditPayment,
   onDeletePayment,
+  onExportPdf,
 }: {
   payments: BudgetTransaction[];
-  balance: number;
   onAddPayment: () => void;
   onEditPayment: (payment: BudgetTransaction) => void;
   onDeletePayment: (payment: BudgetTransaction) => void;
+  onExportPdf: (data: PrintableBudgetReportData) => void;
 }) {
   const [month, setMonth] = useState('');
   const [paidBy, setPaidBy] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
+  const [previewData, setPreviewData] = useState<PrintableBudgetReportData>();
   const payers = useMemo(
     () =>
       [
@@ -72,24 +49,34 @@ export default function BudgetManagementPanel({
     0,
   );
 
+  function createBudgetReportData() {
+    const generatedAt = new Date();
+    const dateStamp = [
+      generatedAt.getFullYear(),
+      String(generatedAt.getMonth() + 1).padStart(2, '0'),
+      String(generatedAt.getDate()).padStart(2, '0'),
+    ].join('-');
+    const timeStamp = [
+      String(generatedAt.getHours()).padStart(2, '0'),
+      String(generatedAt.getMinutes()).padStart(2, '0'),
+      String(generatedAt.getSeconds()).padStart(2, '0'),
+    ].join('-');
+    return {
+      payments: [...payments].sort((a, b) => a.date.localeCompare(b.date)),
+      fileName: `budget-transactions_${dateStamp}_${timeStamp}`,
+      generatedAt,
+    };
+  }
+
   return (
     <>
       <section className="budget-summary panel budget-ledger-summary">
         <div>
-          <p className="stat-label">Payments received</p>
+          <p className="stat-label">Total budgets received</p>
           <strong>{formatCurrency(received)}</strong>
           <p className="stat-foot">
             {filteredPayments.length} budget
-            {filteredPayments.length === 1 ? '' : 's'} match these filters
-          </p>
-        </div>
-        <div>
-          <p className="stat-label">Current budget balance</p>
-          <strong className={balance < 0 ? 'stat-overrun' : undefined}>
-            {formatCurrency(balance)}
-          </strong>
-          <p className="stat-foot">
-            Current budget less expenses since receipt
+            {filteredPayments.length === 1 ? '' : 's'} in this list
           </p>
         </div>
         <button
@@ -148,10 +135,20 @@ export default function BudgetManagementPanel({
             </label>
             <button
               className="button button-secondary"
-              onClick={() => exportBudgetCsv(filteredPayments)}
+              onClick={() => onExportPdf(createBudgetReportData())}
               type="button"
             >
-              ↓ Export budgets
+              ↓ Export budgets as PDF
+            </button>
+            <button
+              className="button button-secondary"
+              onClick={() => {
+                const data = createBudgetReportData();
+                setPreviewData(data);
+              }}
+              type="button"
+            >
+              Preview PDF
             </button>
           </div>
         </div>
@@ -164,6 +161,20 @@ export default function BudgetManagementPanel({
           <p className="empty-state">No budget payments match these filters.</p>
         )}
       </section>
+      {previewData && (
+        <ExportPreviewDialog
+          title="Preview budget PDF"
+          exportLabel="Print / Save PDF"
+          error={undefined}
+          onClose={() => setPreviewData(undefined)}
+          onExport={() => {
+            onExportPdf(previewData);
+            setPreviewData(undefined);
+          }}
+        >
+          <BudgetPrintableReport data={previewData} />
+        </ExportPreviewDialog>
+      )}
     </>
   );
 }

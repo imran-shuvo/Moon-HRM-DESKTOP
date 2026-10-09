@@ -1,9 +1,9 @@
-import { ElectronHandler } from '../main/preload';
+import { FinanceApi } from '../shared/types';
 
 declare global {
   // eslint-disable-next-line no-unused-vars
   interface Window {
-    electron: ElectronHandler;
+    financeApi: FinanceApi;
   }
 }
 

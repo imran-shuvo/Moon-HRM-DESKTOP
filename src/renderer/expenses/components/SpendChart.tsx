@@ -1,4 +1,4 @@
-import { Expense, formatCurrency, todayKey } from '../model';
+import { Expense, formatCurrency, getExpenseTotal, todayKey } from '../model';
 
 export default function SpendChart({ expenses }: { expenses: Expense[] }) {
   const today = new Date(`${todayKey()}T12:00:00`);
@@ -11,7 +11,7 @@ export default function SpendChart({ expenses }: { expenses: Expense[] }) {
       label: date.toLocaleDateString('en-US', { weekday: 'short' }),
       amount: expenses
         .filter((expense) => expense.date === key)
-        .reduce((sum, expense) => sum + expense.amount, 0),
+        .reduce((sum, expense) => sum + getExpenseTotal(expense), 0),
     };
   });
   const max = Math.max(...days.map((day) => day.amount), 1);
@@ -34,10 +34,10 @@ export default function SpendChart({ expenses }: { expenses: Expense[] }) {
       </div>
       <div className="chart-area">
         <div className="chart-y-axis">
-          <span>$5k</span>
-          <span>$3.5k</span>
-          <span>$2k</span>
-          <span>$0</span>
+          <span>SAR 5k</span>
+          <span>SAR 3.5k</span>
+          <span>SAR 2k</span>
+          <span>SAR 0</span>
         </div>
         <div className="chart-plot">
           <div className="chart-grid-lines">

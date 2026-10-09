@@ -1,47 +1,105 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './styles.scss';
 import {
+  AttachmentUpload,
+  BudgetTransactionInput,
+  DatabaseStatus,
+  ExpenseInput,
+  FinanceApi,
+  FinanceSnapshot,
+} from '../shared/types';
+import {
   Budget,
-  BudgetLedgerEntry,
-  Expense,
   BudgetTransaction,
+  Expense,
   Section,
-  DEFAULT_CATEGORIES,
-  DEFAULT_DEPARTMENTS,
-  createSampleExpenses,
-  createBudgetLedger,
   formatCurrency,
+  calculateBudgetForPeriod,
+  getExpenseTotal,
+  getMonthDateRange,
+  getMonthlyExpenseSummaries,
   monthToDate,
-  todayKey,
+  plural,
 } from './expenses/model';
+import { FinanceApiProvider, errorMessage } from './data/FinanceApiContext';
+import {
+  hasLegacyData,
+  markLegacyDataImported,
+  readLegacyPayload,
+} from './data/legacyStorage';
 import ExpenseDialog from './expenses/components/ExpenseDialog';
+import ExpenseDetailsDialog from './expenses/components/ExpenseDetailsDialog';
 import Sidebar from './expenses/components/Sidebar';
 import TransactionPanel from './expenses/components/TransactionPanel';
 import ReportPanel from './expenses/components/ReportPanel';
 import OverviewPanel from './expenses/components/OverviewPanel';
 import BudgetManagementPanel from './expenses/components/BudgetManagementPanel';
 import BudgetPaymentDialog from './expenses/components/BudgetPaymentDialog';
+import BudgetPrintableReport, {
+  PrintableBudgetReportData,
+} from './expenses/components/BudgetPrintableReport';
 import CategoryDepartmentManager from './expenses/components/CategoryDepartmentManager';
+import ReportExportPanel, {
+  PrintableReport,
+  PrintableReportData,
+} from './expenses/components/ReportExportPanel';
+import BackupPanel from './expenses/components/BackupPanel';
+import DatabaseConnectionForm from './expenses/components/DatabaseConnectionForm';
 
-const STORAGE_KEY = 'moon-expenses-v1';
-function createExpenseId() {
-  if (typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+const EMPTY_SNAPSHOT: FinanceSnapshot = {
+  expenses: [],
+  budgetTransactions: [],
+  categories: [],
+  departments: [],
+};
+
+/** Reload from the database when the window regains focus, at most this often. */
+const FOCUS_REFRESH_MS = 30_000;
+
+type LoadState =
+  | 'checking'
+  | 'needs-connection'
+  | 'loading'
+  | 'ready'
+  | 'error';
+
+function greeting(date = new Date()) {
+  const hour = date.getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
 }
 
-const DEFAULT_BUDGETS: Budget[] = [
-  { category: 'Materials', limit: 15000, color: '#7368e8' },
-  { category: 'Payroll', limit: 12000, color: '#34a881' },
-  { category: 'Equipment', limit: 9000, color: '#f2a84a' },
-  { category: 'Travel', limit: 7000, color: '#e77777' },
-  { category: 'Other', limit: 5000, color: '#6f9de8' },
+async function toUploads(files: File[]): Promise<AttachmentUpload[]> {
+  return Promise.all(
+    files.map(async (file) => ({
+      name: file.name,
+      type: file.type || 'application/octet-stream',
+      data: new Uint8Array(await file.arrayBuffer()),
+    })),
+  );
+}
+
+function upsert<T extends { id: string }>(items: T[], item: T): T[] {
+  return items.some((existing) => existing.id === item.id)
+    ? items.map((existing) => (existing.id === item.id ? item : existing))
+    : [item, ...items];
+}
+
+const CATEGORY_COLORS = [
+  '#7368e8',
+  '#34a881',
+  '#f2a84a',
+  '#e77777',
+  '#6f9de8',
+  '#b07ad9',
+  '#4fb8c4',
+  '#d9a23f',
 ];
 
 const TITLES: Record<Section, { title: string; subtitle: string }> = {
   Overview: {
-    title: 'Good morning, Alex',
+    title: 'Overview',
     subtitle: "Here's what's happening with your company finances.",
   },
   Transactions: {
@@ -50,126 +108,155 @@ const TITLES: Record<Section, { title: string; subtitle: string }> = {
   },
   Budgets: {
     title: 'Budgets',
-    subtitle: 'Track company payments, expenses, and your available balance.',
+    subtitle: 'Review every budget received by the company.',
   },
   Reports: {
     title: 'Reports',
     subtitle: 'Review spending by day, week, month, or year.',
   },
   Settings: {
-    title: 'Categories & departments',
-    subtitle: 'Manage the options available on each transaction.',
+    title: 'Settings',
+    subtitle: 'Export reports and manage categories and departments.',
+  },
+  Backup: {
+    title: 'Backup & restore',
+    subtitle: 'Protect company data and recover it when needed.',
   },
 };
 
-function readSavedData(): {
-  expenses: Expense[];
-  budgetTransactions: BudgetTransaction[];
-  categories: string[];
-  departments: string[];
-} {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const data = JSON.parse(saved) as {
-        expenses?: Expense[];
-        budgetTransactions?: BudgetTransaction[];
-        categories?: string[];
-        departments?: string[];
-      };
-      if (Array.isArray(data.expenses)) {
-        return {
-          expenses: data.expenses,
-          budgetTransactions: Array.isArray(data.budgetTransactions)
-            ? data.budgetTransactions
-            : [],
-          categories:
-            Array.isArray(data.categories) && data.categories.length > 0
-              ? data.categories
-              : DEFAULT_CATEGORIES,
-          departments:
-            Array.isArray(data.departments) && data.departments.length > 0
-              ? data.departments
-              : DEFAULT_DEPARTMENTS,
-        };
-      }
-    }
-  } catch (error) {
-    // eslint-disable-next-line no-console
-    console.error('Unable to read saved expense data.', error);
-  }
-  return {
-    expenses: createSampleExpenses(),
-    budgetTransactions: [],
-    categories: DEFAULT_CATEGORIES,
-    departments: DEFAULT_DEPARTMENTS,
-  };
-}
-
-function exportCsv(
-  expenses: Expense[],
-  reportTitle: string,
-  remainingById?: Record<string, number>,
-) {
-  const rows = [
-    [
-      'Date',
-      'Payee',
-      'Description',
-      'Category',
-      'Department',
-      'Payment method',
-      'Amount',
-      ...(remainingById ? ['Remaining budget'] : []),
-    ],
-    ...expenses.map((expense) => [
-      expense.date,
-      expense.payee,
-      expense.description,
-      expense.category,
-      expense.department,
-      expense.paymentMethod,
-      expense.amount.toFixed(2),
-      ...(remainingById ? [(remainingById[expense.id] ?? 0).toFixed(2)] : []),
-    ]),
-  ];
-  const csv = rows
-    .map((row) =>
-      row.map((value) => `"${value.replaceAll('"', '""')}"`).join(','),
-    )
-    .join('\n');
-  const url = URL.createObjectURL(
-    new Blob([csv], { type: 'text/csv;charset=utf-8' }),
-  );
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${reportTitle.toLowerCase().replaceAll(' ', '-')}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-export default function App() {
-  const [savedData] = useState(readSavedData);
-  const [expenses, setExpenses] = useState<Expense[]>(savedData.expenses);
-  const [budgetTransactions, setBudgetTransactions] = useState<
-    BudgetTransaction[]
-  >(savedData.budgetTransactions);
-  const [categories, setCategories] = useState(savedData.categories);
-  const [departments, setDepartments] = useState(savedData.departments);
+export default function App({ api }: { api: FinanceApi }) {
+  const [loadState, setLoadState] = useState<LoadState>('checking');
+  const [loadError, setLoadError] = useState('');
+  const [dbStatus, setDbStatus] = useState<DatabaseStatus>();
+  const [data, setData] = useState<FinanceSnapshot>(EMPTY_SNAPSHOT);
+  const [lastLoadedAt, setLastLoadedAt] = useState<Date>();
+  const [legacyAvailable, setLegacyAvailable] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [appMessage, setAppMessage] = useState<{
+    kind: 'ok' | 'error';
+    text: string;
+  }>();
+  const { expenses, budgetTransactions, categories, departments } = data;
   const [section, setSection] = useState<Section>('Overview');
+  const [printReport, setPrintReport] = useState<PrintableReportData>();
+  const [printBudgetReport, setPrintBudgetReport] =
+    useState<PrintableBudgetReportData>();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense>();
+  const [selectedExpense, setSelectedExpense] = useState<Expense>();
   const [expenseToDelete, setExpenseToDelete] = useState<Expense>();
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<BudgetTransaction>();
   const [paymentToDelete, setPaymentToDelete] = useState<BudgetTransaction>();
+  const [deleting, setDeleting] = useState(false);
   const [search, setSearch] = useState('');
   const [transactionMonth, setTransactionMonth] = useState('');
   const [transactionPayee, setTransactionPayee] = useState('');
-  const [transactionDepartment, setTransactionDepartment] = useState('');
-  const [storageError, setStorageError] = useState('');
+  const loadingRef = useRef(false);
+
+  const loadData = useCallback(
+    async ({ silent }: { silent?: boolean } = {}) => {
+      if (loadingRef.current) return;
+      loadingRef.current = true;
+      if (!silent) setLoadState('loading');
+      try {
+        const snapshot = await api.data.load();
+        setData(snapshot);
+        setLastLoadedAt(new Date());
+        setLegacyAvailable(
+          snapshot.expenses.length === 0 &&
+            snapshot.budgetTransactions.length === 0 &&
+            hasLegacyData(),
+        );
+        setLoadState('ready');
+      } catch (error) {
+        if (silent) {
+          setAppMessage({
+            kind: 'error',
+            text: errorMessage(
+              error,
+              'Could not refresh data from the database.',
+            ),
+          });
+        } else {
+          setLoadError(
+            errorMessage(error, 'Could not load data from the database.'),
+          );
+          setLoadState('error');
+        }
+      } finally {
+        loadingRef.current = false;
+      }
+    },
+    [api],
+  );
+
+  useEffect(() => {
+    let active = true;
+    async function checkConnection() {
+      try {
+        const status = await api.database.status();
+        if (!active) return;
+        setDbStatus(status);
+        if (status.connected) loadData();
+        else setLoadState('needs-connection');
+      } catch (error) {
+        if (!active) return;
+        setLoadError(
+          errorMessage(error, 'Could not check the database connection.'),
+        );
+        setLoadState('error');
+      }
+    }
+    checkConnection();
+    return () => {
+      active = false;
+    };
+  }, [api, loadData]);
+
+  // Pick up changes made by other users of the same database.
+  useEffect(() => {
+    if (loadState !== 'ready') return undefined;
+    const onFocus = () => {
+      if (
+        !lastLoadedAt ||
+        Date.now() - lastLoadedAt.getTime() > FOCUS_REFRESH_MS
+      ) {
+        loadData({ silent: true });
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [loadState, lastLoadedAt, loadData]);
+
+  const handleConnected = useCallback(
+    (status: DatabaseStatus) => {
+      setDbStatus(status);
+      loadData();
+    },
+    [loadData],
+  );
+
+  const importLegacyData = useCallback(async () => {
+    setImporting(true);
+    setAppMessage(undefined);
+    try {
+      const result = await api.data.importLegacy(await readLegacyPayload());
+      markLegacyDataImported();
+      setAppMessage({
+        kind: 'ok',
+        text: `Imported ${plural(result.expenses, 'expense')}, ${plural(result.budgetTransactions, 'budget payment')} and ${plural(result.attachments, 'receipt file')} into the database.`,
+      });
+      await loadData({ silent: true });
+    } catch (error) {
+      setAppMessage({
+        kind: 'error',
+        text: errorMessage(error, 'The device data could not be imported.'),
+      });
+    } finally {
+      setImporting(false);
+    }
+  }, [api, loadData]);
 
   const openExpenseDialog = useCallback(() => {
     setDialogOpen(true);
@@ -179,131 +266,131 @@ export default function App() {
     setSection('Transactions');
   }, []);
 
+  const preparePdfExport = useCallback((report: PrintableReportData) => {
+    setPrintReport(report);
+  }, []);
+
+  const prepareBudgetPdfExport = useCallback(
+    (report: PrintableBudgetReportData) => {
+      setPrintBudgetReport(report);
+    },
+    [],
+  );
+
+  // Once the printable report is mounted, the main process saves it as a PDF.
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          expenses,
-          budgetTransactions,
-          categories,
-          departments,
-        }),
-      );
-      setStorageError('');
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Unable to save expense data on this device.', error);
-      setStorageError('Changes could not be saved on this device.');
-    }
-  }, [expenses, budgetTransactions, categories, departments]);
+    const fileName = printBudgetReport?.fileName ?? printReport?.fileName;
+    if (!fileName) return undefined;
+
+    let active = true;
+    const timeout = window.setTimeout(async () => {
+      try {
+        const savedPath = await api.reports.savePdf(fileName);
+        if (active && savedPath) {
+          setAppMessage({ kind: 'ok', text: `PDF saved: ${savedPath}` });
+        }
+      } catch (error) {
+        if (active) {
+          setAppMessage({
+            kind: 'error',
+            text: errorMessage(error, 'The PDF could not be saved.'),
+          });
+        }
+      } finally {
+        if (active) {
+          setPrintReport(undefined);
+          setPrintBudgetReport(undefined);
+        }
+      }
+    }, 100);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [api, printReport, printBudgetReport]);
 
   const monthExpenses = useMemo(() => monthToDate(expenses), [expenses]);
-  const todayExpenses = useMemo(
-    () => expenses.filter((expense) => expense.date === todayKey()),
-    [expenses],
+  const { start: currentMonthStart, end: currentMonthEnd } =
+    getMonthDateRange();
+  const { totalBudget, remainingBudget: remaining } = calculateBudgetForPeriod(
+    expenses,
+    budgetTransactions,
+    currentMonthStart,
+    currentMonthEnd,
   );
-  const spent = monthExpenses.reduce(
-    (total, expense) => total + expense.amount,
+  const currentMonthExpenses = monthExpenses.reduce(
+    (total, expense) => total + getExpenseTotal(expense),
     0,
   );
-  const ledger = useMemo(
-    () => createBudgetLedger(expenses, budgetTransactions),
-    [expenses, budgetTransactions],
-  );
-  const allExpenses = expenses.reduce(
-    (total, expense) => total + expense.amount,
-    0,
-  );
-  const remaining = ledger.at(-1)?.balance ?? 0;
-  const latestPayment = [...ledger]
-    .reverse()
-    .find((entry) => entry.kind === 'payment');
-  const currentBudgetAmount = latestPayment?.amount ?? 0;
-  const currentBudgetSpent = latestPayment
-    ? currentBudgetAmount - remaining
-    : allExpenses;
+  const monthlyExpenseSummaries = getMonthlyExpenseSummaries(expenses);
   const transactionEntries = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return [...ledger]
+    return [...expenses]
       .filter(
-        (entry) =>
-          !transactionMonth || entry.date.slice(0, 7) === transactionMonth,
+        (expense) =>
+          !transactionMonth || expense.date.slice(0, 7) === transactionMonth,
       )
-      .filter((entry) => {
-        if (!transactionPayee) return true;
-        return (
-          (entry.payment?.paidBy || 'Company') === transactionPayee ||
-          entry.expense?.payee === transactionPayee
-        );
-      })
-      .filter((entry) => {
-        if (!transactionDepartment) return true;
-        return entry.expense?.department === transactionDepartment;
-      })
-      .filter((entry) => {
-        const searchable = [
-          entry.payment?.paidBy,
-          entry.payment?.paymentMethod,
-          entry.payment?.note,
-          entry.expense?.payee,
-          entry.expense?.description,
-          entry.expense?.category,
-          entry.expense?.department,
-          entry.expense?.paymentMethod,
+      .filter(
+        (expense) => !transactionPayee || expense.payee === transactionPayee,
+      )
+      .filter((expense) =>
+        [
+          expense.date,
+          expense.payee,
+          expense.invoiceNo,
+          expense.particulars,
+          expense.description,
+          expense.projectName,
+          expense.siteName,
+          expense.vatNo,
+          expense.type,
         ]
           .filter(Boolean)
           .join(' ')
-          .toLowerCase();
-        return searchable.includes(query);
-      })
+          .toLowerCase()
+          .includes(query),
+      )
       .sort((a, b) => b.date.localeCompare(a.date));
-  }, [
-    ledger,
-    search,
-    transactionMonth,
-    transactionPayee,
-    transactionDepartment,
-  ]);
+  }, [expenses, search, transactionMonth, transactionPayee]);
+
   const saveExpense = useCallback(
-    (expense: Omit<Expense, 'id'>) => {
-      setExpenses((current) => [
-        editingExpense
-          ? {
-              ...expense,
-              id: editingExpense.id,
-              createdAt: editingExpense.createdAt ?? Date.now(),
-            }
-          : { ...expense, id: createExpenseId(), createdAt: Date.now() },
-        ...(editingExpense
-          ? current.filter((item) => item.id !== editingExpense.id)
-          : current),
-      ]);
+    async (input: ExpenseInput, files: File[]) => {
+      const uploads = await toUploads(files);
+      const saved = editingExpense
+        ? await api.expenses.update(editingExpense.id, input, uploads)
+        : await api.expenses.create(input, uploads);
+      setData((current) => ({
+        ...current,
+        expenses: upsert(current.expenses, saved),
+      }));
       setEditingExpense(undefined);
       setDialogOpen(false);
     },
-    [editingExpense],
+    [api, editingExpense],
   );
 
-  const editBudgetPayment = useCallback((entry: BudgetLedgerEntry) => {
-    if (entry.payment) {
-      setEditingPayment(entry.payment);
-      setPaymentDialogOpen(true);
-    }
-  }, []);
-
-  const deleteBudgetPayment = useCallback((entry: BudgetLedgerEntry) => {
-    if (entry.payment) setPaymentToDelete(entry.payment);
-  }, []);
-
-  const confirmDeleteBudgetPayment = useCallback(() => {
-    if (paymentToDelete) {
-      setBudgetTransactions((current) =>
-        current.filter((item) => item.id !== paymentToDelete.id),
-      );
+  const confirmDeleteBudgetPayment = useCallback(async () => {
+    if (!paymentToDelete) return;
+    setDeleting(true);
+    try {
+      await api.budgets.remove(paymentToDelete.id);
+      setData((current) => ({
+        ...current,
+        budgetTransactions: current.budgetTransactions.filter(
+          (item) => item.id !== paymentToDelete.id,
+        ),
+      }));
       setPaymentToDelete(undefined);
+    } catch (error) {
+      setAppMessage({
+        kind: 'error',
+        text: errorMessage(error, 'The payment could not be deleted.'),
+      });
+      setPaymentToDelete(undefined);
+    } finally {
+      setDeleting(false);
     }
-  }, [paymentToDelete]);
+  }, [api, paymentToDelete]);
 
   const closeBudgetPaymentDialog = useCallback(() => {
     setPaymentDialogOpen(false);
@@ -324,21 +411,20 @@ export default function App() {
     setEditingExpense(undefined);
   }, []);
 
+  const closeExpenseDetails = useCallback(() => {
+    setSelectedExpense(undefined);
+  }, []);
+
   const editExpense = useCallback((expense: Expense) => {
+    setSelectedExpense(undefined);
     setEditingExpense(expense);
     setDialogOpen(true);
   }, []);
 
   const deleteExpense = useCallback((expense: Expense) => {
+    setSelectedExpense(undefined);
     setExpenseToDelete(expense);
   }, []);
-
-  const editBudgetEntry = useCallback(
-    (entry: BudgetLedgerEntry) => {
-      if (entry.payment) editBudgetPayment(entry);
-    },
-    [editBudgetPayment],
-  );
 
   const openEditBudgetPayment = useCallback((payment: BudgetTransaction) => {
     setEditingPayment(payment);
@@ -352,358 +438,507 @@ export default function App() {
     [],
   );
 
-  const deleteBudgetEntry = useCallback(
-    (entry: BudgetLedgerEntry) => {
-      if (entry.payment) deleteBudgetPayment(entry);
-    },
-    [deleteBudgetPayment],
-  );
-
-  const editExpenseEntry = useCallback(
-    (entry: BudgetLedgerEntry) => {
-      if (entry.expense) editExpense(entry.expense);
-    },
-    [editExpense],
-  );
-
-  const deleteExpenseEntry = useCallback(
-    (entry: BudgetLedgerEntry) => {
-      if (entry.expense) deleteExpense(entry.expense);
-    },
-    [deleteExpense],
-  );
-
-  const saveBudgetPaymentDirect = useCallback(
-    (payment: Omit<BudgetTransaction, 'id'>) => {
-      setBudgetTransactions((current) => [
-        editingPayment
-          ? {
-              ...payment,
-              id: editingPayment.id,
-              createdAt: editingPayment.createdAt ?? Date.now(),
-            }
-          : { ...payment, id: createExpenseId(), createdAt: Date.now() },
-        ...(editingPayment
-          ? current.filter((item) => item.id !== editingPayment.id)
-          : current),
-      ]);
+  const saveBudgetPayment = useCallback(
+    async (input: BudgetTransactionInput) => {
+      const saved = editingPayment
+        ? await api.budgets.update(editingPayment.id, input)
+        : await api.budgets.create(input);
+      setData((current) => ({
+        ...current,
+        budgetTransactions: upsert(current.budgetTransactions, saved),
+      }));
       setEditingPayment(undefined);
       setPaymentDialogOpen(false);
     },
-    [editingPayment],
+    [api, editingPayment],
   );
 
-  const confirmDeleteExpense = useCallback(() => {
-    if (expenseToDelete) {
-      setExpenses((current) =>
-        current.filter((item) => item.id !== expenseToDelete.id),
-      );
+  const confirmDeleteExpense = useCallback(async () => {
+    if (!expenseToDelete) return;
+    setDeleting(true);
+    try {
+      // Receipt files are removed with the expense in the same transaction.
+      await api.expenses.remove(expenseToDelete.id);
+      setData((current) => ({
+        ...current,
+        expenses: current.expenses.filter(
+          (item) => item.id !== expenseToDelete.id,
+        ),
+      }));
       setExpenseToDelete(undefined);
+    } catch (error) {
+      setAppMessage({
+        kind: 'error',
+        text: errorMessage(error, 'The expense could not be deleted.'),
+      });
+      setExpenseToDelete(undefined);
+    } finally {
+      setDeleting(false);
     }
-  }, [expenseToDelete]);
+  }, [api, expenseToDelete]);
 
   const closeDeleteConfirmation = useCallback(() => {
     setExpenseToDelete(undefined);
   }, []);
 
-  const addCategory = useCallback((value: string) => {
-    setCategories((current) => [...current, value]);
-  }, []);
-
-  const deleteCategory = useCallback((value: string) => {
-    setCategories((current) => current.filter((item) => item !== value));
-  }, []);
-
-  const addDepartment = useCallback((value: string) => {
-    setDepartments((current) => [...current, value]);
-  }, []);
-
-  const deleteDepartment = useCallback((value: string) => {
-    setDepartments((current) => current.filter((item) => item !== value));
-  }, []);
-
-  const renameCategory = useCallback((previous: string, next: string) => {
-    setCategories((current) =>
-      current.map((item) => (item === previous ? next : item)),
-    );
-    setExpenses((current) =>
-      current.map((expense) =>
-        expense.category === previous
-          ? { ...expense, category: next }
-          : expense,
-      ),
-    );
-  }, []);
-
-  const renameDepartment = useCallback((previous: string, next: string) => {
-    setDepartments((current) =>
-      current.map((item) => (item === previous ? next : item)),
-    );
-    setExpenses((current) =>
-      current.map((expense) =>
-        expense.department === previous
-          ? { ...expense, department: next }
-          : expense,
-      ),
-    );
-  }, []);
-
-  const page = TITLES[section];
-  const todayTotal = todayExpenses.reduce(
-    (total, expense) => total + expense.amount,
-    0,
+  const addCategory = useCallback(
+    async (value: string) => {
+      await api.categories.add(value);
+      setData((current) => ({
+        ...current,
+        categories: [...current.categories, value],
+      }));
+    },
+    [api],
   );
-  const categoryBudgets = categories.map((category) => {
-    const existing = DEFAULT_BUDGETS.find(
-      (budget) => budget.category === category,
-    );
+
+  const deleteCategory = useCallback(
+    async (value: string) => {
+      await api.categories.remove(value);
+      setData((current) => ({
+        ...current,
+        categories: current.categories.filter((item) => item !== value),
+      }));
+    },
+    [api],
+  );
+
+  const addDepartment = useCallback(
+    async (value: string) => {
+      await api.departments.add(value);
+      setData((current) => ({
+        ...current,
+        departments: [...current.departments, value],
+      }));
+    },
+    [api],
+  );
+
+  const deleteDepartment = useCallback(
+    async (value: string) => {
+      await api.departments.remove(value);
+      setData((current) => ({
+        ...current,
+        departments: current.departments.filter((item) => item !== value),
+      }));
+    },
+    [api],
+  );
+
+  // The database cascades renames to expenses; mirror that locally.
+  const renameCategory = useCallback(
+    async (previous: string, next: string) => {
+      await api.categories.rename(previous, next);
+      setData((current) => ({
+        ...current,
+        categories: current.categories.map((item) =>
+          item === previous ? next : item,
+        ),
+        expenses: current.expenses.map((expense) =>
+          expense.category === previous
+            ? { ...expense, category: next, type: next }
+            : expense,
+        ),
+      }));
+    },
+    [api],
+  );
+
+  const renameDepartment = useCallback(
+    async (previous: string, next: string) => {
+      await api.departments.rename(previous, next);
+      setData((current) => ({
+        ...current,
+        departments: current.departments.map((item) =>
+          item === previous ? next : item,
+        ),
+        expenses: current.expenses.map((expense) =>
+          expense.department === previous
+            ? { ...expense, department: next }
+            : expense,
+        ),
+      }));
+    },
+    [api],
+  );
+
+  if (loadState !== 'ready') {
     return (
-      existing ?? {
-        category,
-        limit: 0,
-        color: '#7d8da8',
-      }
-    );
-  });
-  const budgetStatus =
-    remaining >= 0
-      ? `${formatCurrency(remaining)} available from company payments`
-      : `${formatCurrency(Math.abs(remaining))} more spent than received`;
-
-  return (
-    <div className="app-shell">
-      <Sidebar
-        budget={currentBudgetAmount}
-        onSelect={setSection}
-        section={section}
-        spent={currentBudgetSpent}
-        transactionCount={expenses.length}
-      />
-      <main className="main-content">
-        <header className="topbar">
-          <div className="breadcrumb">
-            Moon Contracting &amp; Cleaning <span>/</span> Finance
-          </div>
-          <div className="topbar-right">
-            <span className="period-label">Reporting period</span>
-            <span className="period-pill">
-              This month <span aria-hidden="true">⌄</span>
-            </span>
-            <div className="avatar" aria-label="Alex Morgan">
-              AM
+      <FinanceApiProvider value={api}>
+        <main className="startup-screen">
+          <section className="panel startup-card">
+            <div className="brand-lockup">
+              <div className="brand-mark">
+                m<span>.</span>
+              </div>
+              <div className="brand-copy">
+                <strong>moon</strong>
+                <span>CONTRACTING &amp; CLEANING</span>
+              </div>
             </div>
-          </div>
-        </header>
-
-        <div className="page-content">
-          <section className="page-heading">
-            <div>
-              <p className="eyebrow">
-                {section === 'Overview'
-                  ? new Date()
-                      .toLocaleDateString('en-US', {
-                        weekday: 'long',
-                        month: 'long',
-                        day: 'numeric',
-                        year: 'numeric',
-                      })
-                      .toUpperCase()
-                  : 'FINANCE OVERVIEW'}
+            {(loadState === 'checking' || loadState === 'loading') && (
+              <p className="startup-status" role="status">
+                {loadState === 'checking'
+                  ? 'Connecting to the database…'
+                  : 'Loading company data…'}
               </p>
-              <h1>{page.title}</h1>
-              <p className="page-subtitle">{page.subtitle}</p>
-            </div>
-            <div className="heading-actions">
-              <button
-                className="button button-primary"
-                onClick={openExpenseDialog}
-                type="button"
-              >
-                <span aria-hidden="true">＋</span> Add expense
-              </button>
-            </div>
-          </section>
-
-          {section === 'Overview' && (
-            <OverviewPanel
-              monthExpenses={monthExpenses}
-              todayExpenses={todayExpenses}
-              budgets={categoryBudgets}
-              spent={spent}
-              remaining={remaining}
-              budgetStatus={budgetStatus}
-              todayTotal={todayTotal}
-              recentExpenses={[...expenses]
-                .sort((a, b) => b.date.localeCompare(a.date))
-                .slice(0, 5)}
-              onShowTransactions={showTransactions}
-            />
-          )}
-
-          {section === 'Transactions' && (
-            <TransactionPanel
-              entries={transactionEntries}
-              month={transactionMonth}
-              payee={transactionPayee}
-              department={transactionDepartment}
-              search={search}
-              departments={departments}
-              payees={[
-                ...new Set([
-                  ...expenses.map((expense) => expense.payee),
-                  ...budgetTransactions.map(
-                    (payment) => payment.paidBy || 'Company',
-                  ),
-                ]),
-              ].sort()}
-              onMonthChange={setTransactionMonth}
-              onPayeeChange={setTransactionPayee}
-              onDepartmentChange={setTransactionDepartment}
-              onSearchChange={setSearch}
-              onEditPayment={editBudgetEntry}
-              onDeletePayment={deleteBudgetEntry}
-              onEditExpense={editExpenseEntry}
-              onDeleteExpense={deleteExpenseEntry}
-            />
-          )}
-
-          {section === 'Budgets' && (
-            <BudgetManagementPanel
-              payments={budgetTransactions}
-              balance={remaining}
-              onAddPayment={openBudgetPaymentDialog}
-              onEditPayment={openEditBudgetPayment}
-              onDeletePayment={requestDeleteBudgetPayment}
-            />
-          )}
-
-          {section === 'Reports' && (
-            <ReportPanel
-              expenses={expenses}
-              payments={budgetTransactions}
-              onEdit={editExpense}
-              onDelete={deleteExpense}
-              onExport={exportCsv}
-            />
-          )}
-          {section === 'Settings' && (
-            <CategoryDepartmentManager
-              categories={categories}
-              departments={departments}
-              expenses={expenses}
-              onAddCategory={addCategory}
-              onRenameCategory={renameCategory}
-              onDeleteCategory={deleteCategory}
-              onAddDepartment={addDepartment}
-              onRenameDepartment={renameDepartment}
-              onDeleteDepartment={deleteDepartment}
-            />
-          )}
-          <footer className="page-footer">
-            {storageError ? (
-              <span className="storage-error" role="alert">
-                {storageError}
-              </span>
-            ) : (
+            )}
+            {loadState === 'needs-connection' && (
               <>
-                Your data is saved on this device <span>·</span> Updated just
-                now
+                <h1>Connect to the company database</h1>
+                <p className="page-subtitle">
+                  Expenses and budgets are stored in PostgreSQL. Enter the
+                  server details from your administrator. Tables are created
+                  automatically the first time.
+                </p>
+                {dbStatus?.error && (
+                  <p className="form-error" role="alert">
+                    {dbStatus.error}
+                  </p>
+                )}
+                <DatabaseConnectionForm
+                  status={dbStatus}
+                  onCancel={undefined}
+                  onConnected={handleConnected}
+                />
               </>
             )}
-          </footer>
-        </div>
-      </main>
-      {dialogOpen && (
-        <ExpenseDialog
-          onClose={closeExpenseDialog}
-          onSubmit={saveExpense}
-          categories={categories}
-          departments={departments}
-          expense={editingExpense}
-        />
-      )}
-      {paymentDialogOpen && (
-        <BudgetPaymentDialog
-          payment={editingPayment}
-          onClose={closeBudgetPaymentDialog}
-          onSubmit={saveBudgetPaymentDirect}
-        />
-      )}
-      {expenseToDelete && (
-        <div className="dialog-backdrop">
-          <section
-            aria-labelledby="delete-expense-title"
-            aria-modal="true"
-            className="expense-dialog confirmation-dialog"
-            role="alertdialog"
-          >
-            <div className="dialog-heading">
-              <div>
-                <p className="eyebrow">DELETE TRANSACTION</p>
-                <h2 id="delete-expense-title">Delete this expense?</h2>
-                <p>
-                  The transaction for {expenseToDelete.payee} will be
-                  permanently removed from this device.
+            {loadState === 'error' && (
+              <>
+                <h1>The database is not available</h1>
+                <p className="form-error" role="alert">
+                  {loadError}
                 </p>
-              </div>
-            </div>
-            <div className="dialog-actions">
-              <button
-                className="button button-secondary"
-                onClick={closeDeleteConfirmation}
-                type="button"
-              >
-                Cancel
-              </button>
-              <button
-                className="button button-danger"
-                onClick={confirmDeleteExpense}
-                type="button"
-              >
-                Delete expense
-              </button>
-            </div>
+                <div className="dialog-actions">
+                  {dbStatus?.source !== 'env' && (
+                    <button
+                      className="button button-secondary"
+                      onClick={() => setLoadState('needs-connection')}
+                      type="button"
+                    >
+                      Change connection
+                    </button>
+                  )}
+                  <button
+                    className="button button-primary"
+                    onClick={() => loadData()}
+                    type="button"
+                  >
+                    Try again
+                  </button>
+                </div>
+              </>
+            )}
           </section>
-        </div>
-      )}
-      {paymentToDelete && (
-        <div className="dialog-backdrop">
-          <section
-            aria-labelledby="delete-budget-payment-title"
-            aria-modal="true"
-            className="expense-dialog confirmation-dialog"
-            role="alertdialog"
-          >
-            <div className="dialog-heading">
+        </main>
+      </FinanceApiProvider>
+    );
+  }
+
+  const page = TITLES[section];
+  const categoryBudgets: Budget[] = categories.map((category, index) => ({
+    category,
+    color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
+  }));
+  const budgetStatus =
+    remaining >= 0
+      ? `${formatCurrency(remaining)} remains after this month's expenses`
+      : `${formatCurrency(Math.abs(remaining))} more spent than this month's available budget`;
+  const pageTitle = section === 'Overview' ? greeting() : page.title;
+
+  return (
+    <FinanceApiProvider value={api}>
+      <div className="app-shell">
+        <Sidebar
+          budget={totalBudget}
+          onSelect={setSection}
+          section={section}
+          transactionCount={expenses.length}
+        />
+        <main className="main-content">
+          <header className="topbar">
+            <div className="breadcrumb">
+              Moon Trading Contracting &amp; Cleaning <span>/</span> Finance
+            </div>
+            <div className="topbar-right">
+              <span className="period-label">Reporting period</span>
+              <span className="period-pill">
+                This month <span aria-hidden="true">⌄</span>
+              </span>
+            </div>
+          </header>
+
+          <div className="page-content">
+            <section className="page-heading">
               <div>
-                <p className="eyebrow">DELETE COMPANY PAYMENT</p>
-                <h2 id="delete-budget-payment-title">Delete this payment?</h2>
-                <p>
-                  {formatCurrency(paymentToDelete.amount)} received on{' '}
-                  {paymentToDelete.date} will be removed and balances will be
-                  recalculated.
+                <p className="eyebrow">
+                  {section === 'Overview'
+                    ? new Date()
+                        .toLocaleDateString('en-US', {
+                          weekday: 'long',
+                          month: 'long',
+                          day: 'numeric',
+                          year: 'numeric',
+                        })
+                        .toUpperCase()
+                    : 'FINANCE OVERVIEW'}
                 </p>
+                <h1>{pageTitle}</h1>
+                <p className="page-subtitle">{page.subtitle}</p>
               </div>
-            </div>
-            <div className="dialog-actions">
+              {section === 'Transactions' && (
+                <div className="heading-actions">
+                  <button
+                    className="button button-primary"
+                    onClick={openExpenseDialog}
+                    type="button"
+                  >
+                    <span aria-hidden="true">＋</span> Add expense
+                  </button>
+                </div>
+              )}
+            </section>
+
+            {appMessage && (
+              <div
+                className={`app-message ${appMessage.kind}`}
+                role={appMessage.kind === 'error' ? 'alert' : 'status'}
+              >
+                <span>{appMessage.text}</span>
+                <button
+                  aria-label="Dismiss message"
+                  className="dialog-close"
+                  onClick={() => setAppMessage(undefined)}
+                  type="button"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
+            {legacyAvailable && (
+              <div className="app-message info" role="status">
+                <span>
+                  Expense data saved on this computer by the previous version of
+                  the app was found. Import it into the database so it is backed
+                  up and shared.
+                </span>
+                <button
+                  className="button button-primary"
+                  disabled={importing}
+                  onClick={importLegacyData}
+                  type="button"
+                >
+                  {importing ? 'Importing…' : 'Import device data'}
+                </button>
+              </div>
+            )}
+
+            {section === 'Overview' && (
+              <OverviewPanel
+                monthExpenses={monthExpenses}
+                monthlyExpenseSummaries={monthlyExpenseSummaries}
+                budgets={categoryBudgets}
+                totalExpenses={currentMonthExpenses}
+                expenseCount={monthExpenses.length}
+                totalBudget={totalBudget}
+                remaining={remaining}
+                budgetStatus={budgetStatus}
+                recentExpenses={[...expenses]
+                  .sort((a, b) => b.date.localeCompare(a.date))
+                  .slice(0, 5)}
+                onShowTransactions={showTransactions}
+              />
+            )}
+
+            {section === 'Transactions' && (
+              <TransactionPanel
+                expenses={transactionEntries}
+                month={transactionMonth}
+                payee={transactionPayee}
+                search={search}
+                payees={[
+                  ...new Set(expenses.map((expense) => expense.payee)),
+                ].sort()}
+                onMonthChange={setTransactionMonth}
+                onPayeeChange={setTransactionPayee}
+                onSearchChange={setSearch}
+                onSelect={setSelectedExpense}
+              />
+            )}
+
+            {section === 'Budgets' && (
+              <BudgetManagementPanel
+                payments={budgetTransactions}
+                onAddPayment={openBudgetPaymentDialog}
+                onEditPayment={openEditBudgetPayment}
+                onDeletePayment={requestDeleteBudgetPayment}
+                onExportPdf={prepareBudgetPdfExport}
+              />
+            )}
+
+            {section === 'Reports' && (
+              <ReportPanel
+                expenses={expenses}
+                payments={budgetTransactions}
+                onSelect={setSelectedExpense}
+                onExportPdf={preparePdfExport}
+              />
+            )}
+            {section === 'Settings' && (
+              <>
+                <ReportExportPanel
+                  expenses={expenses}
+                  payments={budgetTransactions}
+                  onExportPdf={preparePdfExport}
+                />
+                <CategoryDepartmentManager
+                  categories={categories}
+                  departments={departments}
+                  expenses={expenses}
+                  onAddCategory={addCategory}
+                  onRenameCategory={renameCategory}
+                  onDeleteCategory={deleteCategory}
+                  onAddDepartment={addDepartment}
+                  onRenameDepartment={renameDepartment}
+                  onDeleteDepartment={deleteDepartment}
+                />
+              </>
+            )}
+            {section === 'Backup' && (
+              <BackupPanel
+                status={dbStatus}
+                onStatusChange={handleConnected}
+                onRestored={() => loadData({ silent: true })}
+              />
+            )}
+            <footer className="page-footer">
+              Saved in PostgreSQL
+              {dbStatus?.settings?.database
+                ? ` (${dbStatus.settings.database})`
+                : ''}{' '}
+              <span>·</span> Last updated{' '}
+              {lastLoadedAt?.toLocaleTimeString(undefined, {
+                hour: 'numeric',
+                minute: '2-digit',
+              })}
+              <span>·</span>
               <button
-                className="button button-secondary"
-                onClick={closePaymentDeleteConfirmation}
+                className="text-button"
+                onClick={() => loadData({ silent: true })}
                 type="button"
               >
-                Cancel
+                Refresh
               </button>
-              <button
-                className="button button-danger"
-                onClick={confirmDeleteBudgetPayment}
-                type="button"
-              >
-                Delete payment
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
-    </div>
+            </footer>
+          </div>
+        </main>
+        {dialogOpen && (
+          <ExpenseDialog
+            onClose={closeExpenseDialog}
+            onSubmit={saveExpense}
+            categories={categories}
+            departments={departments}
+            expense={editingExpense}
+          />
+        )}
+        {paymentDialogOpen && (
+          <BudgetPaymentDialog
+            payment={editingPayment}
+            onClose={closeBudgetPaymentDialog}
+            onSubmit={saveBudgetPayment}
+          />
+        )}
+        {selectedExpense && (
+          <ExpenseDetailsDialog
+            expense={selectedExpense}
+            onClose={closeExpenseDetails}
+            onEdit={editExpense}
+            onDelete={deleteExpense}
+          />
+        )}
+        {expenseToDelete && (
+          <div className="dialog-backdrop">
+            <section
+              aria-labelledby="delete-expense-title"
+              aria-modal="true"
+              className="expense-dialog confirmation-dialog"
+              role="alertdialog"
+            >
+              <div className="dialog-heading">
+                <div>
+                  <p className="eyebrow">DELETE TRANSACTION</p>
+                  <h2 id="delete-expense-title">Delete this expense?</h2>
+                  <p>
+                    The transaction for {expenseToDelete.payee} and its receipt
+                    files will be permanently removed from the database.
+                  </p>
+                </div>
+              </div>
+              <div className="dialog-actions">
+                <button
+                  className="button button-secondary"
+                  disabled={deleting}
+                  onClick={closeDeleteConfirmation}
+                  type="button"
+                >
+                  Cancel
+                </button>
+                <button
+                  className="button button-danger"
+                  disabled={deleting}
+                  onClick={confirmDeleteExpense}
+                  type="button"
+                >
+                  Delete expense
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+        {paymentToDelete && (
+          <div className="dialog-backdrop">
+            <section
+              aria-labelledby="delete-budget-payment-title"
+              aria-modal="true"
+              className="expense-dialog confirmation-dialog"
+              role="alertdialog"
+            >
+              <div className="dialog-heading">
+                <div>
+                  <p className="eyebrow">DELETE COMPANY PAYMENT</p>
+                  <h2 id="delete-budget-payment-title">Delete this payment?</h2>
+                  <p>
+                    {formatCurrency(paymentToDelete.amount)} received on{' '}
+                    {paymentToDelete.date} will be removed and balances will be
+                    recalculated.
+                  </p>
+                </div>
+              </div>
+              <div className="dialog-actions">
+                <button
+                  className="button button-secondary"
+                  disabled={deleting}
+                  onClick={closePaymentDeleteConfirmation}
+                  type="button"
+                >
+                  Cancel
+                </button>
+                <button
+                  className="button button-danger"
+                  disabled={deleting}
+                  onClick={confirmDeleteBudgetPayment}
+                  type="button"
+                >
+                  Delete payment
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
+      {printReport && <PrintableReport data={printReport} />}
+      {printBudgetReport && <BudgetPrintableReport data={printBudgetReport} />}
+    </FinanceApiProvider>
   );
 }
