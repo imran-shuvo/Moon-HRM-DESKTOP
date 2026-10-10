@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import './styles.scss';
 import {
   AttachmentUpload,
   BudgetTransactionInput,
@@ -19,6 +18,7 @@ import {
   getMonthDateRange,
   getMonthlyExpenseSummaries,
   inDateRange,
+  matchesSearch,
   plural,
   withSerialNumbers,
 } from './expenses/model';
@@ -239,41 +239,56 @@ export default function App({ api }: { api: FinanceApi }) {
   const [transactionFrom, setTransactionFrom] = useState('');
   const [transactionTo, setTransactionTo] = useState('');
   const [transactionPayee, setTransactionPayee] = useState('');
-  const loadingRef = useRef(false);
+  const loadingRef = useRef<Promise<void>>();
+  const reloadRequestedRef = useRef(false);
 
   const loadData = useCallback(
-    async ({ silent }: { silent?: boolean } = {}) => {
-      if (loadingRef.current) return;
-      loadingRef.current = true;
-      if (!silent) setLoadState('loading');
-      try {
-        const snapshot = await api.data.load();
-        setData(snapshot);
-        setLastLoadedAt(new Date());
-        setLegacyAvailable(
-          snapshot.expenses.length === 0 &&
-            snapshot.budgetTransactions.length === 0 &&
-            hasLegacyData(),
-        );
-        setLoadState('ready');
-      } catch (error) {
-        if (silent) {
-          setAppMessage({
-            kind: 'error',
-            text: errorMessage(
-              error,
-              'Could not refresh data from the database.',
-            ),
-          });
-        } else {
-          setLoadError(
-            errorMessage(error, 'Could not load data from the database.'),
-          );
-          setLoadState('error');
-        }
-      } finally {
-        loadingRef.current = false;
+    ({ silent }: { silent?: boolean } = {}): Promise<void> => {
+      // A load already running may have read data from before the latest
+      // change, so run once more after it instead of dropping this request.
+      if (loadingRef.current) {
+        reloadRequestedRef.current = true;
+        return loadingRef.current;
       }
+      async function load() {
+        let quiet = silent;
+        if (!quiet) setLoadState('loading');
+        do {
+          reloadRequestedRef.current = false;
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            const snapshot = await api.data.load();
+            setData(snapshot);
+            setLastLoadedAt(new Date());
+            setLegacyAvailable(
+              snapshot.expenses.length === 0 &&
+                snapshot.budgetTransactions.length === 0 &&
+                hasLegacyData(),
+            );
+            setLoadState('ready');
+          } catch (error) {
+            if (quiet) {
+              setAppMessage({
+                kind: 'error',
+                text: errorMessage(
+                  error,
+                  'Could not refresh data from the database.',
+                ),
+              });
+            } else {
+              setLoadError(
+                errorMessage(error, 'Could not load data from the database.'),
+              );
+              setLoadState('error');
+            }
+          }
+          quiet = true;
+        } while (reloadRequestedRef.current);
+      }
+      loadingRef.current = load().finally(() => {
+        loadingRef.current = undefined;
+      });
+      return loadingRef.current;
     },
     [api],
   );
@@ -466,34 +481,16 @@ export default function App({ api }: { api: FinanceApi }) {
     [api],
   );
   const monthlyExpenseSummaries = getMonthlyExpenseSummaries(expenses);
-  const transactionEntries = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return [...expenses]
-      .filter((expense) =>
-        inDateRange(expense.date, transactionFrom, transactionTo),
-      )
-      .filter(
-        (expense) => !transactionPayee || expense.payee === transactionPayee,
-      )
-      .filter((expense) =>
-        [
-          expense.date,
-          expense.payee,
-          expense.invoiceNo,
-          expense.particulars,
-          expense.description,
-          expense.projectName,
-          expense.siteName,
-          expense.vatNo,
-          expense.type,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-          .includes(query),
-      )
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [expenses, search, transactionFrom, transactionTo, transactionPayee]);
+  const transactionEntries = useMemo(
+    () =>
+      expenses.filter(
+        (expense) =>
+          inDateRange(expense.date, transactionFrom, transactionTo) &&
+          (!transactionPayee || expense.payee === transactionPayee) &&
+          matchesSearch(expense, search),
+      ),
+    [expenses, search, transactionFrom, transactionTo, transactionPayee],
+  );
 
   const saveExpense = useCallback(
     async (input: ExpenseInput, files: File[]) => {
@@ -870,6 +867,7 @@ export default function App({ api }: { api: FinanceApi }) {
                 broughtForward={broughtForward}
                 received={receivedInPeriod}
                 onViewMonth={setViewMonth}
+                expenses={expenses}
                 monthExpenses={monthExpenses}
                 monthlyExpenseSummaries={monthlyExpenseSummaries}
                 budgets={categoryBudgets}

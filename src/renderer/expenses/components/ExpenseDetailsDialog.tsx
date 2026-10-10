@@ -146,6 +146,10 @@ export default function ExpenseDetailsDialog({
             <dd>{expense.type || expense.category || '—'}</dd>
           </div>
           <div>
+            <dt>Department</dt>
+            <dd>{expense.department || '—'}</dd>
+          </div>
+          <div>
             <dt>Payment method</dt>
             <dd>{expense.paymentMethod || '—'}</dd>
           </div>

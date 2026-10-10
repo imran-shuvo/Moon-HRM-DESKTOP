@@ -1,4 +1,4 @@
-import type { Expense } from '../renderer/expenses/model';
+import { Expense, getExpenseTotal } from '../renderer/expenses/model';
 
 /** Test-only fixture data; the app itself never loads sample records. */
 export default function createSampleExpenses(): Expense[] {
@@ -164,4 +164,23 @@ export default function createSampleExpenses(): Expense[] {
       amount: 6200,
     },
   ];
+}
+
+/** Fills the fields older records lack, as the database would. */
+export function normalizeExpense(expense: Expense): Expense {
+  const amount = getExpenseTotal(expense);
+  return {
+    ...expense,
+    amount,
+    particulars: expense.particulars ?? expense.description ?? '',
+    amountExcludingVat: expense.amountExcludingVat ?? amount,
+    vat: expense.vat ?? 0,
+    amountIncludingVat: amount,
+    type: expense.type ?? expense.category ?? 'Other',
+    projectName: expense.projectName ?? '',
+    invoiceNo: expense.invoiceNo ?? '',
+    siteName: expense.siteName ?? '',
+    vatNo: expense.vatNo ?? '',
+    attachments: expense.attachments ?? [],
+  };
 }

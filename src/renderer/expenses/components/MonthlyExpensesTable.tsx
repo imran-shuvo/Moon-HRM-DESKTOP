@@ -1,4 +1,4 @@
-import { isMonthClosed } from '../../../shared/months';
+import { formatMonthName, isMonthClosed } from '../../../shared/months';
 import { formatCurrency } from '../model';
 
 type MonthlyExpenseSummary = {
@@ -6,13 +6,6 @@ type MonthlyExpenseSummary = {
   total: number;
   count: number;
 };
-
-function formatMonth(value: string) {
-  return new Date(`${value}-01T12:00:00`).toLocaleDateString(undefined, {
-    month: 'long',
-    year: 'numeric',
-  });
-}
 
 export default function MonthlyExpensesTable({
   months,
@@ -60,12 +53,12 @@ export default function MonthlyExpensesTable({
                 >
                   <td>
                     <button
-                      aria-label={`View ${formatMonth(month)}`}
+                      aria-label={`View ${formatMonthName(month)}`}
                       className="transaction-row-button"
                       onClick={() => onViewMonth(month)}
                       type="button"
                     >
-                      {formatMonth(month)}
+                      {formatMonthName(month)}
                     </button>
                   </td>
                   <td>

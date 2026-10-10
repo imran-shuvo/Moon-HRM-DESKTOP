@@ -15,6 +15,7 @@ export default function OverviewPanel({
   reopenedMonths,
   broughtForward,
   received,
+  expenses,
   monthExpenses,
   monthlyExpenseSummaries,
   budgets,
@@ -34,6 +35,8 @@ export default function OverviewPanel({
   broughtForward: number;
   /** Budget received during the month. */
   received: number;
+  /** All expenses, for the spending chart. */
+  expenses: Expense[];
   monthExpenses: Expense[];
   monthlyExpenseSummaries: {
     month: string;
@@ -129,7 +132,7 @@ export default function OverviewPanel({
         </article>
       </section>
       <section className="overview-grid">
-        <SpendChart expenses={monthExpenses} />
+        <SpendChart expenses={expenses} month={month} />
         <CategorySpendCard budgets={budgets} expenses={monthExpenses} />
       </section>
       <MonthlyExpensesTable

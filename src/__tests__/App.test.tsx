@@ -7,7 +7,8 @@ import {
   within,
 } from '@testing-library/react';
 import App from '../renderer/App';
-import createMemoryApi from '../renderer/data/memoryApi';
+import { getRange } from '../renderer/expenses/components/ReportPanel';
+import createMemoryApi from '../testFixtures/memoryApi';
 import {
   BudgetTransaction,
   Expense,
@@ -18,10 +19,10 @@ import {
   formatReportAmount,
   formatReportDate,
   getExpenseTotal,
-  monthToDate,
-  normalizeExpense,
 } from '../renderer/expenses/model';
-import createSampleExpenses from '../testFixtures/sampleExpenses';
+import createSampleExpenses, {
+  normalizeExpense,
+} from '../testFixtures/sampleExpenses';
 
 function matchesCurrency(amount: number) {
   const expected = formatCurrency(amount).replace(/\u00a0/g, ' ');
@@ -133,11 +134,10 @@ describe('App', () => {
       },
     ];
     await renderApp({ expenses, budgetTransactions });
-    const periodExpenses = monthToDate(expenses).reduce(
-      (sum, expense) => sum + getExpenseTotal(expense),
-      0,
-    );
     const { start, end } = getMonthDateRange();
+    const periodExpenses = expenses
+      .filter((expense) => expense.date >= start && expense.date <= end)
+      .reduce((sum, expense) => sum + getExpenseTotal(expense), 0);
     const { totalBudget: availableBudget, remainingBudget } =
       calculateBudgetForPeriod(expenses, budgetTransactions, start, end);
     const summaryRegion = screen.getByLabelText('Company budget summary');
@@ -827,7 +827,7 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save PDF' }));
     await waitFor(() => expect(savePdf).toHaveBeenCalledTimes(1));
     expect(savePdf.mock.calls[0][0]).toMatch(
-      /^finance-report_\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2}_\d{14}$/,
+      /^finance-report_\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/,
     );
   });
 
@@ -1285,5 +1285,149 @@ describe('App with the database', () => {
     const table = within(screen.getByRole('table', { name: 'Saved backups' }));
     expect(table.getByText('Manual')).toBeInTheDocument();
     expect(table.getByRole('button', { name: 'Restore…' })).toBeInTheDocument();
+  });
+});
+
+describe('QA regressions', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    freezeToday();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('keeps a weekly report inside one Monday–Sunday week across months', () => {
+    expect(getRange('weekly', '2026-10-01')).toEqual({
+      start: '2026-09-28',
+      end: '2026-10-04',
+    });
+    expect(getRange('weekly', '2026-10-15')).toEqual({
+      start: '2026-10-12',
+      end: '2026-10-18',
+    });
+    expect(getRange('weekly', '2026-12-31')).toEqual({
+      start: '2026-12-28',
+      end: '2027-01-03',
+    });
+  });
+
+  it('charts the last week of a past month when that month is viewed', async () => {
+    const expenses = createSampleExpenses();
+    expenses.push({
+      ...expenses[0],
+      id: 'september-expense',
+      date: '2026-09-30',
+      amount: 1234,
+    });
+    await renderApp({ expenses });
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+
+    const chart = screen
+      .getByRole('heading', { name: 'Spending activity' })
+      .closest('article') as HTMLElement;
+    expect(
+      within(chart).getByText('Daily outflow over the 7 days to 30-Sep-2026'),
+    ).toBeInTheDocument();
+    expect(
+      within(chart).getByText(matchesCurrency(1234), { selector: 'strong' }),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps a payment method that is not in the list when editing', async () => {
+    const expenses = createSampleExpenses();
+    expenses[0] = { ...expenses[0], paymentMethod: 'Cheque' };
+    const memory = await renderApp({ expenses });
+    fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    fireEvent.click(
+      screen.getAllByRole('button', {
+        name: `View details for ${expenses[0].payee}`,
+      })[0],
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Edit transaction' }));
+    expect(screen.getByLabelText('Payment method')).toHaveValue('Cheque');
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitForDialogToClose();
+
+    expect(
+      memory.snapshot().expenses.find((item) => item.id === expenses[0].id)
+        ?.paymentMethod,
+    ).toBe('Cheque');
+  });
+
+  it('does not export expenses for a reversed date range', async () => {
+    await renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    fireEvent.change(screen.getByLabelText('Filter expenses from date'), {
+      target: { value: '2026-10-20' },
+    });
+    fireEvent.change(screen.getByLabelText('Filter expenses to date'), {
+      target: { value: '2026-10-10' },
+    });
+
+    expect(
+      screen.getByRole('button', { name: '↓ Export expenses as PDF' }),
+    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Preview PDF' })).toBeDisabled();
+  });
+
+  it('finds expenses by department', async () => {
+    await renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    fireEvent.change(screen.getByLabelText('Search transactions'), {
+      target: { value: 'field services' },
+    });
+
+    expect(
+      screen.getAllByRole('button', {
+        name: /view details for Northstar Equipment/i,
+      }).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('reloads again when a refresh is requested during another refresh', async () => {
+    const memory = await renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    const { load } = memory.api.data;
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const spy = jest
+      .spyOn(memory.api.data, 'load')
+      .mockImplementationOnce(async () => {
+        const snapshot = await load();
+        await held;
+        return snapshot;
+      });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await memory.api.expenses.create(
+      {
+        date: '2026-10-27',
+        payee: 'Queued Refresh Co',
+        particulars: 'Saved by another computer',
+        category: 'Other',
+        department: '',
+        paymentMethod: 'Cash',
+        projectName: '',
+        invoiceNo: '',
+        siteName: '',
+        vatNo: '',
+        amountExcludingVat: 10,
+        vat: 0,
+      },
+      [],
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    release();
+
+    expect(
+      await screen.findByRole('button', {
+        name: 'View details for Queued Refresh Co',
+      }),
+    ).toBeInTheDocument();
+    expect(spy).toHaveBeenCalledTimes(2);
   });
 });

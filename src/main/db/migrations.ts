@@ -3,7 +3,8 @@ import { Database } from './database';
 
 /**
  * Ordered, append-only schema migrations. Never edit a migration that has
- * shipped; add a new one instead. Each runs in its own transaction.
+ * shipped; add a new one instead. Pending migrations run together in one
+ * transaction, so a failed upgrade leaves the schema unchanged.
  */
 export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
   {
@@ -151,13 +152,6 @@ export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
 
 // Arbitrary constant so two app instances never migrate at the same time.
 const MIGRATION_LOCK_ID = 727_120_301;
-
-export async function currentSchemaVersion(db: Database): Promise<number> {
-  const { rows } = await db.query<{ version: number | null }>(
-    'SELECT max(version) AS version FROM schema_migrations',
-  );
-  return rows[0]?.version ?? 0;
-}
 
 export async function migrate(db: Database): Promise<number> {
   await db.query(`

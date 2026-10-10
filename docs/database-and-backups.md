@@ -98,5 +98,5 @@ between app backups.
   so it always equals excluding-VAT plus VAT.
 - Renaming a type or department cascades to its expenses. Deleting one that is
   still in use is refused by a foreign key.
-- UI tests run against `src/renderer/data/memoryApi.ts`, an in-memory
+- UI tests run against `src/testFixtures/memoryApi.ts`, an in-memory
   implementation of the same API with the same validation.

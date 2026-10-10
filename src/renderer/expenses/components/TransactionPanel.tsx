@@ -39,6 +39,7 @@ export default function TransactionPanel({
   onExportPdf: (data: PrintableExpenseReportData) => void;
 }) {
   const [previewData, setPreviewData] = useState<PrintableExpenseReportData>();
+  const invalidRange = Boolean(fromDate && toDate && fromDate > toDate);
 
   /** The PDF contains exactly the expenses listed under these filters. */
   function createReportData(): PrintableExpenseReportData {
@@ -121,6 +122,7 @@ export default function TransactionPanel({
           </label>
           <button
             className="button button-secondary"
+            disabled={invalidRange}
             onClick={() => onExportPdf(createReportData())}
             type="button"
           >
@@ -128,6 +130,7 @@ export default function TransactionPanel({
           </button>
           <button
             className="button button-secondary"
+            disabled={invalidRange}
             onClick={() => setPreviewData(createReportData())}
             type="button"
           >
@@ -135,7 +138,7 @@ export default function TransactionPanel({
           </button>
         </div>
       </div>
-      {fromDate && toDate && fromDate > toDate && (
+      {invalidRange && (
         <p className="form-error transaction-filter-error" role="alert">
           The From date must be on or before the To date.
         </p>
@@ -148,7 +151,6 @@ export default function TransactionPanel({
         <ExportPreviewDialog
           title="Preview expense PDF"
           exportLabel="Save PDF"
-          error={undefined}
           onClose={() => setPreviewData(undefined)}
           onExport={() => {
             onExportPdf(previewData);

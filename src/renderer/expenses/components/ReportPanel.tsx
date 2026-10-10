@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react';
 import ExpenseListTable from './ExpenseListTable';
-import { BudgetTransaction, Expense, formatCurrency, todayKey } from '../model';
+import {
+  BudgetTransaction,
+  Expense,
+  formatCurrency,
+  matchesSearch,
+  toDateKey,
+  todayKey,
+} from '../model';
 import {
   PrintableReport,
   PrintableReportData,
@@ -11,17 +18,15 @@ import moonLogo from '../../../../assets/moon-logo.png';
 
 type Period = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
-function toDateKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-function getRange(period: Period, anchor: string) {
+/** The Monday–Sunday week, month or year containing `anchor`. */
+export function getRange(period: Period, anchor: string) {
   const date = new Date(`${anchor || todayKey()}T12:00:00`);
   const start = new Date(date);
   const end = new Date(date);
 
   if (period === 'weekly') {
     start.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+    end.setTime(start.getTime());
     end.setDate(start.getDate() + 6);
   } else if (period === 'monthly') {
     start.setDate(1);
@@ -79,11 +84,8 @@ export default function ReportPanel({
     [expenses, payments, start, end],
   );
   const reportExpenses = report.expenses;
-  const query = search.trim().toLowerCase();
   const visibleExpenses = reportExpenses.filter((expense) =>
-    `${expense.payee} ${expense.invoiceNo} ${expense.particulars} ${expense.description} ${expense.projectName} ${expense.siteName} ${expense.vatNo} ${expense.type}`
-      .toLowerCase()
-      .includes(query),
+    matchesSearch(expense, search),
   );
   const total = report.totalExpenses;
   const label = formatRange(start, end, period);
@@ -231,7 +233,6 @@ export default function ReportPanel({
         <ExportPreviewDialog
           title="Preview finance report"
           exportLabel="Save PDF"
-          error={undefined}
           onClose={() => setPreviewData(undefined)}
           onExport={() => {
             onExportPdf(previewData);

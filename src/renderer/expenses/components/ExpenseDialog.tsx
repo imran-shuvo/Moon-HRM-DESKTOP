@@ -27,6 +27,13 @@ export default function ExpenseDialog({
   const [vat, setVat] = useState(expense?.vat?.toString() ?? '0');
   const total =
     Math.round(((Number(excludingVat) || 0) + (Number(vat) || 0)) * 100) / 100;
+  // A stored value missing from a list is still offered, so editing keeps it.
+  const withCurrent = (options: string[], current: string | undefined) =>
+    current !== undefined && !options.includes(current)
+      ? [...options, current]
+      : options;
+  const typeOptions = withCurrent(categories, expense?.category);
+  const paymentMethods = withCurrent(PAYMENT_METHODS, expense?.paymentMethod);
   let submitLabel = expense ? 'Save changes' : 'Save expense';
   if (saving) submitLabel = 'Saving…';
 
@@ -192,13 +199,11 @@ export default function ExpenseDialog({
             <label className="form-field" htmlFor="expense-type">
               Type
               <select
-                defaultValue={
-                  expense?.type ?? expense?.category ?? categories[0]
-                }
+                defaultValue={expense?.category ?? categories[0]}
                 id="expense-type"
                 name="type"
               >
-                {categories.map((category) => (
+                {typeOptions.map((category) => (
                   <option key={category}>{category}</option>
                 ))}
               </select>
@@ -211,13 +216,11 @@ export default function ExpenseDialog({
                 name="department"
               >
                 <option value="">— None —</option>
-                {departments.map((department) => (
-                  <option key={department}>{department}</option>
-                ))}
-                {expense?.department &&
-                  !departments.includes(expense.department) && (
-                    <option>{expense.department}</option>
-                  )}
+                {withCurrent(departments, expense?.department || undefined).map(
+                  (department) => (
+                    <option key={department}>{department}</option>
+                  ),
+                )}
               </select>
             </label>
             <label
@@ -280,8 +283,10 @@ export default function ExpenseDialog({
                 id="expense-payment-method"
                 name="paymentMethod"
               >
-                {PAYMENT_METHODS.map((method) => (
-                  <option key={method}>{method}</option>
+                {paymentMethods.map((method) => (
+                  <option key={method} value={method}>
+                    {method || '— Not specified —'}
+                  </option>
                 ))}
               </select>
             </label>

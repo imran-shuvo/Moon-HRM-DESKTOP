@@ -3,9 +3,11 @@ import {
   BudgetTransaction,
   Expense,
   bySerialNo,
+  fileTimestamp,
   formatCurrency,
   formatReportAmount,
   getExpenseTotal,
+  todayKey,
 } from '../model';
 import { BudgetTransactionsTable } from './BudgetPrintableReport';
 import { ExpenseTransactionsTable } from './ExpensePrintableReport';
@@ -25,18 +27,6 @@ export type PrintableReportData = {
   fileName: string;
   generatedAt: Date;
 };
-
-function createReportFileName(fromDate: string, toDate: string, date: Date) {
-  const timestamp = [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0'),
-    String(date.getHours()).padStart(2, '0'),
-    String(date.getMinutes()).padStart(2, '0'),
-    String(date.getSeconds()).padStart(2, '0'),
-  ].join('');
-  return `finance-report_${fromDate}_to_${toDate}_${timestamp}`;
-}
 
 export function createPrintableReportData(
   expenses: Expense[],
@@ -73,7 +63,9 @@ export function createPrintableReportData(
     remainingBudget: openingBalance + totalReceived - totalExpenses,
     fromDate,
     toDate,
-    fileName: fileName ?? createReportFileName(fromDate, toDate, generatedAt),
+    fileName:
+      fileName ??
+      `finance-report_${fromDate}_to_${toDate}_${fileTimestamp(generatedAt)}`,
     generatedAt,
   };
 }
@@ -156,9 +148,9 @@ export default function ReportExportPanel({
   payments: BudgetTransaction[];
   onExportPdf: (data: PrintableReportData) => void;
 }) {
-  const today = new Date();
-  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const [fromDate, setFromDate] = useState(`${today.getFullYear()}-01-01`);
+  const [fromDate, setFromDate] = useState(
+    () => `${todayKey().slice(0, 4)}-01-01`,
+  );
   const [toDate, setToDate] = useState(todayKey);
   const [error, setError] = useState('');
   const [preview, setPreview] = useState<PrintableReportData>();
@@ -257,7 +249,6 @@ export default function ReportExportPanel({
         <ExportPreviewDialog
           title="Preview finance report"
           exportLabel="Save PDF"
-          error={error}
           onClose={() => setPreview(undefined)}
           onExport={() => {
             onExportPdf(preview);

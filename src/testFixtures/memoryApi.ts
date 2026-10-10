@@ -1,4 +1,4 @@
-import { AppError } from '../../shared/errors';
+import { AppError } from '../shared/errors';
 import {
   AttachmentUpload,
   BackupFileInfo,
@@ -10,7 +10,7 @@ import {
   FinanceApi,
   FinanceSnapshot,
   ListApi,
-} from '../../shared/types';
+} from '../shared/types';
 import {
   listName,
   pastMonth,
@@ -18,9 +18,12 @@ import {
   validateBudgetTransactionInput,
   validateExpenseInput,
   validateUploads,
-} from '../../shared/validation';
-import { assertMonthsOpen, monthKey } from '../../shared/months';
-import { DEFAULT_CATEGORIES, DEFAULT_DEPARTMENTS } from '../expenses/model';
+} from '../shared/validation';
+import { assertMonthsOpen, monthKey } from '../shared/months';
+import {
+  DEFAULT_CATEGORIES,
+  DEFAULT_DEPARTMENTS,
+} from '../renderer/expenses/model';
 
 // Data is plain JSON, so this is a full deep copy (jsdom lacks structuredClone).
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -81,7 +84,7 @@ function toPayment(
 
 /**
  * An in-memory implementation of the database API with the same validation
- * and rules as the PostgreSQL one. Used by tests and as a reference.
+ * and rules as the PostgreSQL one, for tests.
  */
 export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
   const state: FinanceSnapshot = {

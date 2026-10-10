@@ -351,7 +351,6 @@ h1 { margin-bottom: 5px; font: 700 25px 'Manrope', sans-serif; letter-spacing: -
   display: flex; justify-content: flex-end; gap: 9px;
   border-top: 1px solid #e6e5ed; padding: 14px 20px; background: #fff;
 }
-.export-preview-error { margin: 0; padding: 0 20px 12px; }
 .expense-entry-dialog { width: min(100%, 720px); max-height: calc(100vh - 32px); overflow-y: auto; }
 .expense-entry-dialog .form-grid { gap: 12px; }
 .form-field textarea { width: 100%; min-height: 66px; resize: vertical; border: 1px solid #e7e7ec; border-radius: 6px; outline: 0; padding: 9px 10px; color: #373846; background: white; font: inherit; font-size: 10px; font-weight: 400; }

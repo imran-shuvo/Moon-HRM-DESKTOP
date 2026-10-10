@@ -48,18 +48,15 @@ export default function BudgetManagementPanel({
   );
   const filteredPayments = useMemo(
     () =>
-      [...payments]
-        .filter((payment) => inDateRange(payment.date, fromDate, toDate))
-        .filter(
-          (payment) => !paidBy || (payment.paidBy || 'Company') === paidBy,
-        )
-        .filter(
-          (payment) =>
-            !paymentMethod || (payment.paymentMethod || '') === paymentMethod,
-        )
-        .sort((a, b) => b.date.localeCompare(a.date)),
+      payments.filter(
+        (payment) =>
+          inDateRange(payment.date, fromDate, toDate) &&
+          (!paidBy || (payment.paidBy || 'Company') === paidBy) &&
+          (!paymentMethod || payment.paymentMethod === paymentMethod),
+      ),
     [payments, fromDate, toDate, paidBy, paymentMethod],
   );
+  const invalidRange = Boolean(fromDate && toDate && fromDate > toDate);
   const received = filteredPayments.reduce(
     (total, payment) => total + payment.amount,
     0,
@@ -169,6 +166,7 @@ export default function BudgetManagementPanel({
             </label>
             <button
               className="button button-secondary"
+              disabled={invalidRange}
               onClick={() => onExportPdf(createBudgetReportData())}
               type="button"
             >
@@ -176,6 +174,7 @@ export default function BudgetManagementPanel({
             </button>
             <button
               className="button button-secondary"
+              disabled={invalidRange}
               onClick={() => setPreviewData(createBudgetReportData())}
               type="button"
             >
@@ -183,7 +182,7 @@ export default function BudgetManagementPanel({
             </button>
           </div>
         </div>
-        {fromDate && toDate && fromDate > toDate && (
+        {invalidRange && (
           <p className="form-error transaction-filter-error" role="alert">
             The From date must be on or before the To date.
           </p>
@@ -202,7 +201,6 @@ export default function BudgetManagementPanel({
         <ExportPreviewDialog
           title="Preview budget PDF"
           exportLabel="Print / Save PDF"
-          error={undefined}
           onClose={() => setPreviewData(undefined)}
           onExport={() => {
             onExportPdf(previewData);

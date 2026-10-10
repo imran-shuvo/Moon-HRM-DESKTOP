@@ -1,11 +1,38 @@
-import { Expense, formatCurrency, getExpenseTotal, todayKey } from '../model';
+import {
+  Expense,
+  formatCurrency,
+  formatReportDate,
+  getExpenseTotal,
+  getMonthDateRange,
+  toDateKey,
+  todayKey,
+} from '../model';
 
-export default function SpendChart({ expenses }: { expenses: Expense[] }) {
-  const today = new Date(`${todayKey()}T12:00:00`);
+const compactCurrency = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+});
+
+/**
+ * Daily spending over the 7 days up to today, or up to the last day of
+ * `month` when a past month is shown.
+ */
+export default function SpendChart({
+  expenses,
+  month,
+}: {
+  /** All expenses: the 7 days may start in the month before. */
+  expenses: Expense[];
+  month: string;
+}) {
+  const today = todayKey();
+  const monthEnd = getMonthDateRange(`${month}-01`).end;
+  const lastDay = monthEnd < today ? monthEnd : today;
+  const last = new Date(`${lastDay}T12:00:00`);
   const days = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() - (6 - index));
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    const date = new Date(last);
+    date.setDate(last.getDate() - (6 - index));
+    const key = toDateKey(date);
     return {
       key,
       label: date.toLocaleDateString('en-US', { weekday: 'short' }),
@@ -14,15 +41,21 @@ export default function SpendChart({ expenses }: { expenses: Expense[] }) {
         .reduce((sum, expense) => sum + getExpenseTotal(expense), 0),
     };
   });
-  const max = Math.max(...days.map((day) => day.amount), 1);
+  const peak = Math.max(...days.map((day) => day.amount));
+  const max = peak || 1;
   const weekTotal = days.reduce((sum, day) => sum + day.amount, 0);
+  const isRecent = lastDay === today;
 
   return (
     <article className="panel spend-panel">
       <div className="panel-heading">
         <div>
           <h2>Spending activity</h2>
-          <p>Daily outflow over the last 7 days</p>
+          <p>
+            {isRecent
+              ? 'Daily outflow over the last 7 days'
+              : `Daily outflow over the 7 days to ${formatReportDate(lastDay)}`}
+          </p>
         </div>
         <div className="chart-legend">
           <i /> Expenses
@@ -30,14 +63,15 @@ export default function SpendChart({ expenses }: { expenses: Expense[] }) {
       </div>
       <div className="chart-summary">
         <strong>{formatCurrency(weekTotal)}</strong>
-        <span>Last 7 days</span>
+        <span>{isRecent ? 'Last 7 days' : '7 days'}</span>
       </div>
       <div className="chart-area">
         <div className="chart-y-axis">
-          <span>SAR 5k</span>
-          <span>SAR 3.5k</span>
-          <span>SAR 2k</span>
-          <span>SAR 0</span>
+          {[1, 2 / 3, 1 / 3, 0].map((fraction) => (
+            <span key={fraction}>
+              SAR {compactCurrency.format(peak * fraction)}
+            </span>
+          ))}
         </div>
         <div className="chart-plot">
           <div className="chart-grid-lines">
@@ -54,7 +88,7 @@ export default function SpendChart({ expenses }: { expenses: Expense[] }) {
                 title={`${day.label}: ${formatCurrency(day.amount)}`}
               >
                 <span
-                  className={`chart-bar${day.key === todayKey() ? ' today' : ''}`}
+                  className={`chart-bar${day.key === today ? ' today' : ''}`}
                   style={{
                     height: `${Math.max((day.amount / max) * 100, 3)}%`,
                   }}

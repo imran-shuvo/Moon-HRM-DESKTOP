@@ -55,6 +55,44 @@ function handle<A extends unknown[], R>(
   });
 }
 
+/** File types the OS would run rather than display; these are only revealed. */
+const EXECUTABLE_EXTENSIONS = new Set(
+  [
+    'app',
+    'appimage',
+    'bat',
+    'cmd',
+    'com',
+    'command',
+    'cpl',
+    'deb',
+    'dmg',
+    'exe',
+    'hta',
+    'jar',
+    'js',
+    'jse',
+    'lnk',
+    'msc',
+    'msi',
+    'pif',
+    'pkg',
+    'ps1',
+    'reg',
+    'rpm',
+    'scr',
+    'sh',
+    'url',
+    'vb',
+    'vbe',
+    'vbs',
+    'workflow',
+    'ws',
+    'wsf',
+    'wsh',
+  ].map((extension) => `.${extension}`),
+);
+
 const BACKUP_FILTERS = [
   { name: 'Moon Finance backup', extensions: [BACKUP_EXTENSION.slice(1)] },
 ];
@@ -132,6 +170,11 @@ export default function registerIpcHandlers({
       .replace(/[\x00-\x1f<>:"/\\|?*]/g, '_');
     const filePath = path.join(directory, `${attachmentId}-${safeName}`);
     await fs.writeFile(filePath, attachment.data);
+    // Attachments come from a shared database: never launch a program.
+    if (EXECUTABLE_EXTENSIONS.has(path.extname(safeName).toLowerCase())) {
+      shell.showItemInFolder(filePath);
+      return;
+    }
     const error = await shell.openPath(filePath);
     if (error)
       throw new AppError('NOT_FOUND', `The file could not be opened: ${error}`);

@@ -3,14 +3,12 @@ import { ReactNode } from 'react';
 export default function ExportPreviewDialog({
   title,
   exportLabel,
-  error,
   onClose,
   onExport,
   children,
 }: {
   title: string;
   exportLabel: string;
-  error: string | undefined;
   onClose: () => void;
   onExport: () => void;
   children: ReactNode;
@@ -35,11 +33,6 @@ export default function ExportPreviewDialog({
           </button>
         </header>
         <div className="export-preview-content">{children}</div>
-        {error && (
-          <p className="form-error export-preview-error" role="alert">
-            {error}
-          </p>
-        )}
         <footer className="export-preview-actions">
           <button
             className="button button-secondary"

@@ -32,8 +32,6 @@ export const DEFAULT_DEPARTMENTS = [
   'Administration',
   'Sales',
 ];
-export const CATEGORIES = DEFAULT_CATEGORIES;
-export const DEPARTMENTS = DEFAULT_DEPARTMENTS;
 export const PAYMENT_METHODS = [
   'Company card',
   'Bank transfer',
@@ -41,15 +39,14 @@ export const PAYMENT_METHODS = [
   'Petty cash',
 ];
 
-export function todayKey() {
-  const date = new Date();
-  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return localDate.toISOString().slice(0, 10);
+/** 'YYYY-MM-DD' for a date in local time. */
+export function toDateKey(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-export function monthToDate(expenses: Expense[]) {
-  const month = todayKey().slice(0, 7);
-  return expenses.filter((expense) => expense.date.startsWith(month));
+export function todayKey() {
+  return toDateKey(new Date());
 }
 
 /**
@@ -183,6 +180,24 @@ export function fileTimestamp(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
 }
 
+/** Whether any of the expense's text fields contains `query` (case-insensitive). */
+export function matchesSearch(expense: Expense, query: string) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return [
+    expense.date,
+    expense.payee,
+    expense.invoiceNo,
+    expense.particulars,
+    expense.description,
+    expense.projectName,
+    expense.siteName,
+    expense.vatNo,
+    expense.category,
+    expense.department,
+  ].some((value) => value?.toLowerCase().includes(needle));
+}
+
 /** Keeps records dated within an optional inclusive YYYY-MM-DD range. */
 export function inDateRange(date: string, fromDate: string, toDate: string) {
   return (!fromDate || date >= fromDate) && (!toDate || date <= toDate);
@@ -213,22 +228,4 @@ export function formatReportAmount(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
-}
-
-export function normalizeExpense(expense: Expense): Expense {
-  const amount = getExpenseTotal(expense);
-  return {
-    ...expense,
-    amount,
-    particulars: expense.particulars ?? expense.description ?? '',
-    amountExcludingVat: expense.amountExcludingVat ?? amount,
-    vat: expense.vat ?? 0,
-    amountIncludingVat: amount,
-    type: expense.type ?? expense.category ?? 'Other',
-    projectName: expense.projectName ?? '',
-    invoiceNo: expense.invoiceNo ?? '',
-    siteName: expense.siteName ?? '',
-    vatNo: expense.vatNo ?? '',
-    attachments: expense.attachments ?? [],
-  };
 }

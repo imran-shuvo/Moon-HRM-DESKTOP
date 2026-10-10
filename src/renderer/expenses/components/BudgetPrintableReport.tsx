@@ -1,6 +1,5 @@
 import {
   BudgetTransaction,
-  bySerialNo,
   formatReportAmount,
   formatReportDate,
 } from '../model';
@@ -32,7 +31,7 @@ export function BudgetTransactionsTable({
         </tr>
       </thead>
       <tbody>
-        {[...payments].sort(bySerialNo).map((payment) => (
+        {payments.map((payment) => (
           <tr key={payment.id}>
             <td className="sl">{payment.serialNo}</td>
             <td>{formatReportDate(payment.date)}</td>

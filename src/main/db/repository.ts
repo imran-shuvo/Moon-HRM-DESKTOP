@@ -375,7 +375,7 @@ export async function updateExpense(
     const previousDate = await lockedRecordDate(client, 'expenses', id);
     await assertDatesOpen(client, [previousDate, input.date]);
     const payee = await ensureListItem(client, 'payees', input.payee);
-    const { rowCount } = await client.query(
+    await client.query(
       `UPDATE expenses SET
          expense_date = $2, payee = $3, particulars = $4, category = $5,
          department = $6, payment_method = $7, project_name = $8,
@@ -384,9 +384,6 @@ export async function updateExpense(
        WHERE id = $1`,
       [id, ...expenseParams({ ...input, payee })],
     );
-    if (!rowCount) {
-      throw new AppError('NOT_FOUND', 'That expense no longer exists.');
-    }
     await insertAttachments(client, id, files);
     return loadExpense(client, id);
   });
@@ -459,9 +456,6 @@ export async function updateBudgetTransaction(
        RETURNING ${RECEIPT_COLUMNS}`,
       [id, input.date, input.amount, paidBy, input.paymentMethod, input.note],
     );
-    if (!rows[0]) {
-      throw new AppError('NOT_FOUND', 'That budget payment no longer exists.');
-    }
     return toBudgetTransaction(rows[0]);
   });
 }

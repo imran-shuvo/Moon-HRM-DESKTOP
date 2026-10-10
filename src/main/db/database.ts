@@ -84,7 +84,7 @@ export class Database implements Queryable {
   }
 }
 
-type PgError = Error & { code?: string; constraint?: string };
+type PgError = Error & { code?: string; detail?: string };
 
 /** Turns driver/server errors into messages a finance user can act on. */
 export function toAppError(error: unknown): AppError {
@@ -93,8 +93,19 @@ export function toAppError(error: unknown): AppError {
   switch (pgError?.code) {
     case '23505':
       return new AppError('CONFLICT', 'That name already exists.');
-    case '23001': // restrict_violation (ON DELETE RESTRICT)
     case '23503': // foreign_key_violation
+      // Saving a transaction whose type/department was removed meanwhile.
+      if (pgError.detail?.includes('is not present in table')) {
+        return new AppError(
+          'VALIDATION',
+          'The chosen type or department no longer exists. Refresh and choose another.',
+        );
+      }
+      return new AppError(
+        'IN_USE',
+        'This item is still used by existing transactions. Edit those transactions first.',
+      );
+    case '23001': // restrict_violation (ON DELETE RESTRICT)
       return new AppError(
         'IN_USE',
         'This item is still used by existing transactions. Edit those transactions first.',
