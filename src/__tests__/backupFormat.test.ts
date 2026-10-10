@@ -88,6 +88,25 @@ describe('backup file format', () => {
     });
   });
 
+  it('keeps payee lists, and still reads backups made before them', () => {
+    const withLists = {
+      ...sampleData(),
+      payees: [{ name: 'Pacific Building Supply', sortOrder: 1, createdAt }],
+      budgetPayers: [{ name: 'Owner', sortOrder: 1, createdAt }],
+    };
+    const parsed = parseBackup(
+      serializeBackup(buildBackupDocument(withLists, meta)),
+    );
+    expect(parsed.data.payees).toEqual(withLists.payees);
+    expect(parsed.data.budgetPayers).toEqual(withLists.budgetPayers);
+
+    // sampleData() has no payee lists, like a backup from an older version.
+    const old = parseBackup(
+      serializeBackup(buildBackupDocument(sampleData(), meta)),
+    );
+    expect(old.data.payees).toBeUndefined();
+  });
+
   it('rejects a file whose contents were changed', () => {
     const document = buildBackupDocument(sampleData(), meta);
     document.data.budgetReceipts[0].amount = 9_999_999;

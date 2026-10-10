@@ -1,4 +1,4 @@
-import { BudgetTransaction, formatCurrency } from '../model';
+import { BudgetTransaction, bySerialNo, formatCurrency } from '../model';
 
 function formatDate(value: string) {
   return new Date(`${value}T12:00:00`).toLocaleDateString('en-US', {
@@ -32,9 +32,9 @@ export default function BudgetPaymentsTable({
           </tr>
         </thead>
         <tbody>
-          {payments.map((payment, index) => (
+          {[...payments].sort(bySerialNo).map((payment) => (
             <tr key={payment.id}>
-              <td>{index + 1}</td>
+              <td>{payment.serialNo}</td>
               <td className="date-cell">{formatDate(payment.date)}</td>
               <td className="ledger-description">
                 {payment.paidBy || 'Company'}

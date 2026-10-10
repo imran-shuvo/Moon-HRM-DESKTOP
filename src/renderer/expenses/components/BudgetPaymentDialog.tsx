@@ -2,13 +2,16 @@ import { FormEvent, useState } from 'react';
 import { BudgetTransactionInput } from '../../../shared/types';
 import { errorMessage } from '../../data/FinanceApiContext';
 import { BudgetTransaction, todayKey } from '../model';
+import ListSelectField from './ListSelectField';
 
 export default function BudgetPaymentDialog({
   payment,
+  payers,
   onClose,
   onSubmit,
 }: {
   payment: BudgetTransaction | undefined;
+  payers: string[];
   onClose: () => void;
   onSubmit: (payment: BudgetTransactionInput) => Promise<void>;
 }) {
@@ -104,17 +107,17 @@ export default function BudgetPaymentDialog({
                 />
               </span>
             </label>
-            <label className="form-field" htmlFor="budget-payment-paid-by">
-              Received from
-              <input
-                id="budget-payment-paid-by"
-                maxLength={100}
-                name="paidBy"
-                placeholder="Person or company"
-                defaultValue={payment?.paidBy ?? ''}
-                required
-              />
-            </label>
+            <ListSelectField
+              className="form-field"
+              defaultValue={payment?.paidBy ?? ''}
+              id="budget-payment-paid-by"
+              label="Received from"
+              maxLength={100}
+              name="paidBy"
+              newOptionLabel="New payee name"
+              options={payers}
+              placeholder="Person or company"
+            />
             <label className="form-field" htmlFor="budget-payment-method">
               Budget payment method
               <select

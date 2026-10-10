@@ -49,7 +49,26 @@ type ReceiptRow = {
   created_at: Date;
 };
 
-export type ListTable = 'categories' | 'departments';
+export type ListTable =
+  | 'categories'
+  | 'departments'
+  | 'payees'
+  | 'budget_payers';
+
+/**
+ * Payee lists are not foreign keys, so the app keeps the transactions that
+ * use a name in step with the list (categories/departments use ON UPDATE CASCADE).
+ */
+const PAYEE_LIST_USAGE = {
+  payees: { table: 'expenses', column: 'payee' },
+  budget_payers: { table: 'budget_receipts', column: 'paid_by' },
+} as const;
+
+function payeeListUsage(table: ListTable) {
+  return table === 'payees' || table === 'budget_payers'
+    ? PAYEE_LIST_USAGE[table]
+    : undefined;
+}
 
 const EXPENSE_COLUMNS = `
   id, expense_date, payee, particulars, category, department, payment_method,
@@ -182,6 +201,54 @@ async function listNames(client: Queryable, table: ListTable) {
   return rows.map((row) => row.name);
 }
 
+/** Adds every payee name used by a transaction that is missing from its list. */
+export async function syncPayeeLists(client: Queryable): Promise<void> {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [table, usage] of Object.entries(PAYEE_LIST_USAGE)) {
+    // eslint-disable-next-line no-await-in-loop
+    await client.query(
+      `INSERT INTO ${table} (name, sort_order)
+       SELECT name, (SELECT coalesce(max(sort_order), 0) FROM ${table})
+                    + row_number() OVER (ORDER BY lower(name))
+       FROM (SELECT DISTINCT ON (lower(${usage.column})) ${usage.column} AS name
+             FROM ${usage.table}
+             WHERE btrim(${usage.column}) <> ''
+               AND lower(${usage.column}) NOT IN (SELECT lower(name) FROM ${table})
+             GROUP BY ${usage.column}
+             -- Keep the most used spelling, then the earliest, then capitalised.
+             ORDER BY lower(${usage.column}), count(*) DESC, min(created_at),
+                      ${usage.column} COLLATE "C") AS names`,
+    );
+    // One spelling per name, so renames and in-use checks match exactly.
+    // eslint-disable-next-line no-await-in-loop
+    await client.query(
+      `UPDATE ${usage.table} t SET ${usage.column} = l.name
+       FROM ${table} l
+       WHERE lower(t.${usage.column}) = lower(l.name)
+         AND t.${usage.column} <> l.name`,
+    );
+  }
+}
+
+/** Returns the stored spelling of `name`, creating it if it does not exist. */
+async function ensureListItem(
+  client: Queryable,
+  table: ListTable,
+  name: string,
+): Promise<string> {
+  const existing = await client.query<{ name: string }>(
+    `SELECT name FROM ${table} WHERE lower(name) = lower($1)`,
+    [name],
+  );
+  if (existing.rows[0]) return existing.rows[0].name;
+  await client.query(
+    `INSERT INTO ${table} (name, sort_order)
+     SELECT $1, coalesce(max(sort_order), 0) + 1 FROM ${table}`,
+    [name],
+  );
+  return name;
+}
+
 export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
   // One consistent snapshot even if another user is writing concurrently.
   return db.transaction(
@@ -201,6 +268,8 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
       );
       const categories = await listNames(client, 'categories');
       const departments = await listNames(client, 'departments');
+      const payees = await listNames(client, 'payees');
+      const budgetPayers = await listNames(client, 'budget_payers');
       const attachmentsByExpense = new Map<string, ExpenseAttachment[]>();
       attachments.rows.forEach((row) => {
         const list = attachmentsByExpense.get(row.expense_id) ?? [];
@@ -214,6 +283,8 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
         budgetTransactions: receipts.rows.map(toBudgetTransaction),
         categories,
         departments,
+        payees,
+        budgetPayers,
       };
     },
     { isolation: 'REPEATABLE READ' },
@@ -226,6 +297,7 @@ export function createExpense(
   files: AttachmentUpload[],
 ): Promise<Expense> {
   return db.transaction(async (client) => {
+    const payee = await ensureListItem(client, 'payees', input.payee);
     const { rows } = await client.query<{ id: string }>(
       `INSERT INTO expenses
          (expense_date, payee, particulars, category, department,
@@ -233,7 +305,7 @@ export function createExpense(
           amount_excluding_vat, vat)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING id`,
-      expenseParams(input),
+      expenseParams({ ...input, payee }),
     );
     await insertAttachments(client, rows[0].id, files);
     return loadExpense(client, rows[0].id);
@@ -248,6 +320,7 @@ export async function updateExpense(
 ): Promise<Expense> {
   assertUuid(id);
   return db.transaction(async (client) => {
+    const payee = await ensureListItem(client, 'payees', input.payee);
     const { rowCount } = await client.query(
       `UPDATE expenses SET
          expense_date = $2, payee = $3, particulars = $4, category = $5,
@@ -255,7 +328,7 @@ export async function updateExpense(
          invoice_no = $9, site_name = $10, vat_no = $11,
          amount_excluding_vat = $12, vat = $13, updated_at = now()
        WHERE id = $1`,
-      [id, ...expenseParams(input)],
+      [id, ...expenseParams({ ...input, payee })],
     );
     if (!rowCount) {
       throw new AppError('NOT_FOUND', 'That expense no longer exists.');
@@ -296,18 +369,21 @@ export async function getAttachment(
   };
 }
 
-export async function createBudgetTransaction(
+export function createBudgetTransaction(
   db: Database,
   input: BudgetTransactionInput,
 ): Promise<BudgetTransaction> {
-  const { rows } = await db.query<ReceiptRow>(
-    `INSERT INTO budget_receipts
-       (received_date, amount, paid_by, payment_method, note)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING ${RECEIPT_COLUMNS}`,
-    [input.date, input.amount, input.paidBy, input.paymentMethod, input.note],
-  );
-  return toBudgetTransaction(rows[0]);
+  return db.transaction(async (client) => {
+    const paidBy = await ensureListItem(client, 'budget_payers', input.paidBy);
+    const { rows } = await client.query<ReceiptRow>(
+      `INSERT INTO budget_receipts
+         (received_date, amount, paid_by, payment_method, note)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING ${RECEIPT_COLUMNS}`,
+      [input.date, input.amount, paidBy, input.paymentMethod, input.note],
+    );
+    return toBudgetTransaction(rows[0]);
+  });
 }
 
 export async function updateBudgetTransaction(
@@ -316,25 +392,21 @@ export async function updateBudgetTransaction(
   input: BudgetTransactionInput,
 ): Promise<BudgetTransaction> {
   assertUuid(id);
-  const { rows } = await db.query<ReceiptRow>(
-    `UPDATE budget_receipts SET
-       received_date = $2, amount = $3, paid_by = $4, payment_method = $5,
-       note = $6, updated_at = now()
-     WHERE id = $1
-     RETURNING ${RECEIPT_COLUMNS}`,
-    [
-      id,
-      input.date,
-      input.amount,
-      input.paidBy,
-      input.paymentMethod,
-      input.note,
-    ],
-  );
-  if (!rows[0]) {
-    throw new AppError('NOT_FOUND', 'That budget payment no longer exists.');
-  }
-  return toBudgetTransaction(rows[0]);
+  return db.transaction(async (client) => {
+    const paidBy = await ensureListItem(client, 'budget_payers', input.paidBy);
+    const { rows } = await client.query<ReceiptRow>(
+      `UPDATE budget_receipts SET
+         received_date = $2, amount = $3, paid_by = $4, payment_method = $5,
+         note = $6, updated_at = now()
+       WHERE id = $1
+       RETURNING ${RECEIPT_COLUMNS}`,
+      [id, input.date, input.amount, paidBy, input.paymentMethod, input.note],
+    );
+    if (!rows[0]) {
+      throw new AppError('NOT_FOUND', 'That budget payment no longer exists.');
+    }
+    return toBudgetTransaction(rows[0]);
+  });
 }
 
 export async function deleteBudgetTransaction(
@@ -363,33 +435,64 @@ export async function addListItem(
   );
 }
 
-/** Renames cascade to expenses through ON UPDATE CASCADE. */
-export async function renameListItem(
+/**
+ * Category/department renames cascade through ON UPDATE CASCADE; payee
+ * renames update the transactions that use the name in the same transaction.
+ */
+export function renameListItem(
   db: Database,
   table: ListTable,
   previous: string,
   next: string,
 ): Promise<void> {
-  const { rowCount } = await db.query(
-    `UPDATE ${table} SET name = $2 WHERE name = $1`,
-    [previous, next],
-  );
-  if (!rowCount)
-    throw new AppError('NOT_FOUND', `"${previous}" no longer exists.`);
+  return db.transaction(async (client) => {
+    const { rowCount } = await client.query(
+      `UPDATE ${table} SET name = $2 WHERE name = $1`,
+      [previous, next],
+    );
+    if (!rowCount)
+      throw new AppError('NOT_FOUND', `"${previous}" no longer exists.`);
+    const usage = payeeListUsage(table);
+    if (usage) {
+      await client.query(
+        `UPDATE ${usage.table} SET ${usage.column} = $2, updated_at = now()
+         WHERE ${usage.column} = $1`,
+        [previous, next],
+      );
+    }
+  });
 }
 
-/** Deleting an item that expenses still use is refused by the foreign key. */
+/**
+ * Deleting a category/department that expenses still use is refused by the
+ * foreign key; a payee that transactions still use is refused here.
+ */
 export function deleteListItem(
   db: Database,
   table: ListTable,
   name: string,
 ): Promise<void> {
   return db.transaction(async (client) => {
-    const { rows } = await client.query<{ count: string }>(
-      `SELECT count(*) AS count FROM ${table}`,
-    );
-    if (Number(rows[0].count) <= 1) {
-      throw new AppError('VALIDATION', 'Keep at least one option available.');
+    const usage = payeeListUsage(table);
+    if (usage) {
+      const { rows } = await client.query<{ used: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM ${usage.table}
+                        WHERE ${usage.column} = $1) AS used`,
+        [name],
+      );
+      if (rows[0].used) {
+        throw new AppError(
+          'IN_USE',
+          `"${name}" is still used by existing transactions. Edit those transactions first.`,
+        );
+      }
+    } else {
+      const { rows } = await client.query<{ count: string }>(
+        `SELECT count(*) AS count FROM ${table}`,
+      );
+      if (Number(rows[0].count) <= 1) {
+        throw new AppError('VALIDATION', 'Keep at least one option available.');
+      }
     }
     const { rowCount } = await client.query(
       `DELETE FROM ${table} WHERE name = $1`,
@@ -398,25 +501,6 @@ export function deleteListItem(
     if (!rowCount)
       throw new AppError('NOT_FOUND', `"${name}" no longer exists.`);
   });
-}
-
-/** Returns the stored spelling of `name`, creating it if it does not exist. */
-async function ensureListItem(
-  client: Queryable,
-  table: ListTable,
-  name: string,
-): Promise<string> {
-  const existing = await client.query<{ name: string }>(
-    `SELECT name FROM ${table} WHERE lower(name) = lower($1)`,
-    [name],
-  );
-  if (existing.rows[0]) return existing.rows[0].name;
-  await client.query(
-    `INSERT INTO ${table} (name, sort_order)
-     SELECT $1, coalesce(max(sort_order), 0) + 1 FROM ${table}`,
-    [name],
-  );
-  return name;
 }
 
 export async function isDatabaseEmpty(client: Queryable): Promise<boolean> {
@@ -510,6 +594,7 @@ export function importLegacyData(
       );
     }
     /* eslint-enable no-restricted-syntax, no-await-in-loop */
+    await syncPayeeLists(client);
     return {
       expenses: payload.expenses.length,
       budgetTransactions: payload.budgetTransactions.length,

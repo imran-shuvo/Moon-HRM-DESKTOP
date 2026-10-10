@@ -15,6 +15,8 @@ import {
   formatCurrency,
   getMonthDateRange,
   getMonthlyExpenseSummaries,
+  formatReportAmount,
+  formatReportDate,
   getExpenseTotal,
   monthToDate,
   normalizeExpense,
@@ -37,6 +39,24 @@ async function renderApp(
   render(<App api={memory.api} />);
   await screen.findByRole('navigation', { name: 'Main navigation' });
   return memory;
+}
+
+const NEW_NAME_LABELS: Record<string, string> = {
+  'Paid to': 'New paid to name',
+  'Received from': 'New payee name',
+};
+
+/** Picks a saved name in a dropdown, or chooses "New…" and types it. */
+function chooseName(fieldLabel: string, value: string) {
+  const dialog = within(screen.getByRole('dialog'));
+  const select = dialog.getByLabelText(fieldLabel) as HTMLSelectElement;
+  const saved = [...select.options].some((option) => option.value === value);
+  fireEvent.change(select, { target: { value: saved ? value : '__new__' } });
+  if (!saved) {
+    fireEvent.change(dialog.getByLabelText(NEW_NAME_LABELS[fieldLabel]), {
+      target: { value },
+    });
+  }
 }
 
 async function waitForDialogToClose() {
@@ -179,9 +199,7 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
     fireEvent.click(screen.getByRole('button', { name: /add expense/i }));
-    fireEvent.change(screen.getByLabelText('Paid to'), {
-      target: { value: 'Test Building Supply' },
-    });
+    chooseName('Paid to', 'Test Building Supply');
     fireEvent.change(screen.getByLabelText('Particulars / details'), {
       target: { value: 'Replacement materials' },
     });
@@ -266,9 +284,7 @@ describe('App', () => {
       })[0],
     );
     fireEvent.click(screen.getByRole('button', { name: 'Edit transaction' }));
-    fireEvent.change(screen.getByLabelText('Paid to'), {
-      target: { value: 'Updated Supply Co.' },
-    });
+    chooseName('Paid to', 'Updated Supply Co.');
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() =>
@@ -299,7 +315,7 @@ describe('App', () => {
     ).toBeInTheDocument();
   });
 
-  it('filters expenses by payee and month', async () => {
+  it('filters expenses by payee and date range', async () => {
     const memory = await renderApp();
     fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
     fireEvent.change(screen.getByLabelText('Filter by payee'), {
@@ -312,22 +328,23 @@ describe('App', () => {
     ).toBeGreaterThan(0);
     expect(table.queryByText('Evergreen Fuel Co.')).not.toBeInTheDocument();
 
-    const currentMonth = memory.snapshot().expenses[0].date.slice(0, 7);
-    fireEvent.change(screen.getByLabelText('Filter by month'), {
-      target: { value: currentMonth },
+    const { date } = memory.snapshot().expenses[0];
+    fireEvent.change(screen.getByLabelText('Filter expenses from date'), {
+      target: { value: date },
+    });
+    fireEvent.change(screen.getByLabelText('Filter expenses to date'), {
+      target: { value: date },
     });
     expect(
       table.getAllByText('Pacific Building Supply').length,
     ).toBeGreaterThan(0);
   });
 
-  it('filters out expenses from other months', async () => {
+  it('filters out expenses outside the date range', async () => {
     const memory = await renderApp();
     fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
     fireEvent.click(screen.getByRole('button', { name: /add expense/i }));
-    fireEvent.change(screen.getByLabelText('Paid to'), {
-      target: { value: 'January Vendor' },
-    });
+    chooseName('Paid to', 'January Vendor');
     fireEvent.change(screen.getByLabelText('Particulars / details'), {
       target: { value: 'January purchase' },
     });
@@ -345,8 +362,11 @@ describe('App', () => {
         ]),
       ),
     );
-    fireEvent.change(screen.getByLabelText('Filter by month'), {
-      target: { value: '2020-01' },
+    fireEvent.change(screen.getByLabelText('Filter expenses from date'), {
+      target: { value: '2020-01-01' },
+    });
+    fireEvent.change(screen.getByLabelText('Filter expenses to date'), {
+      target: { value: '2020-01-31' },
     });
 
     const table = within(screen.getByRole('table'));
@@ -370,7 +390,9 @@ describe('App', () => {
     expect(
       screen.getByText('Moon Trading Contracting & Cleaning'),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText('Moon company logo')).toBeInTheDocument();
+    expect(
+      screen.getByAltText('Moon Trading Contracting and Cleaning logo'),
+    ).toBeInTheDocument();
     expect(screen.getByText('Generated')).toBeInTheDocument();
     expect(
       screen.getByText(/Total expenses \(15 transactions\)/),
@@ -378,12 +400,7 @@ describe('App', () => {
     const reportRows = within(screen.getByRole('table'))
       .getAllByRole('row')
       .slice(1, -1);
-    const reportDateTimes = reportRows.map((row) =>
-      new Date(within(row).getAllByRole('cell')[1].textContent || '').getTime(),
-    );
-    expect(reportDateTimes).toEqual(
-      [...reportDateTimes].sort((first, second) => first - second),
-    );
+    // Rows are listed by serial no. (entry order), lowest first.
     expect(
       reportRows.map((row) => within(row).getAllByRole('cell')[0].textContent),
     ).toEqual(reportRows.map((_, index) => String(index + 1)));
@@ -434,9 +451,7 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('Payment amount'), {
       target: { value: '50000' },
     });
-    fireEvent.change(screen.getByLabelText('Received from'), {
-      target: { value: 'Moon Contracting' },
-    });
+    chooseName('Received from', 'Moon Contracting');
     fireEvent.change(screen.getByLabelText('Budget payment method'), {
       target: { value: 'Card' },
     });
@@ -475,9 +490,7 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('Payment amount'), {
       target: { value: '10000' },
     });
-    fireEvent.change(screen.getByLabelText('Received from'), {
-      target: { value: 'Company' },
-    });
+    chooseName('Received from', 'Company');
     fireEvent.change(screen.getByLabelText('Budget payment method'), {
       target: { value: 'Cash' },
     });
@@ -502,7 +515,7 @@ describe('App', () => {
     ).toBeGreaterThan(0);
   });
 
-  it('filters budget payments by payer, month, and payment method', async () => {
+  it('filters budget payments by payee, date range, and payment method', async () => {
     await renderApp();
     fireEvent.click(screen.getByRole('button', { name: /budgets/i }));
 
@@ -511,9 +524,7 @@ describe('App', () => {
       fireEvent.change(screen.getByLabelText('Payment amount'), {
         target: { value: '2500' },
       });
-      fireEvent.change(screen.getByLabelText('Received from'), {
-        target: { value: payer },
-      });
+      chooseName('Received from', payer);
       fireEvent.change(screen.getByLabelText('Date received'), {
         target: { value: date },
       });
@@ -529,8 +540,11 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('Filter budgets by payer'), {
       target: { value: 'Acme Ltd' },
     });
-    fireEvent.change(screen.getByLabelText('Filter budgets by month'), {
-      target: { value: '2026-01' },
+    fireEvent.change(screen.getByLabelText('Filter budgets from date'), {
+      target: { value: '2026-01-01' },
+    });
+    fireEvent.change(screen.getByLabelText('Filter budgets to date'), {
+      target: { value: '2026-01-31' },
     });
     fireEvent.change(
       screen.getByLabelText('Filter budgets by payment method'),
@@ -552,7 +566,7 @@ describe('App', () => {
     ).toBeInTheDocument();
   });
 
-  it('prints all budget transactions with a timestamped PDF title', async () => {
+  it('prints the filtered budget transactions with a timestamped PDF title', async () => {
     const budgetTransactions = [
       {
         id: 'budget-first',
@@ -582,23 +596,25 @@ describe('App', () => {
     expect(
       screen.getByRole('dialog', { name: 'Preview budget PDF' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Budget transactions')).toBeInTheDocument();
-    expect(screen.getByText('1009039045')).toBeInTheDocument();
-    expect(screen.getByText('955215')).toBeInTheDocument();
-    expect(screen.getByText('Date')).toBeInTheDocument();
-    expect(screen.getByText('Time')).toBeInTheDocument();
-    expect(screen.getAllByText('Northwind').length).toBeGreaterThan(1);
-    expect(screen.getByText('February deposit')).toBeInTheDocument();
+    expect(screen.getByText('BUDGET REPORT')).toBeInTheDocument();
+    expect(
+      screen.getByText('CR No: 1009039045 | Member ID: 955215'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('1. Budget Transactions')).toBeInTheDocument();
+    // Only the filtered budgets are printed, with the filters described.
+    expect(
+      screen.getByText('Period: All dates · Payee: Acme Ltd'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('12-Jan-2026')).toBeInTheDocument();
+    expect(screen.getAllByText('1,200.00').length).toBeGreaterThan(0);
     const budgetPrintTable = within(screen.getAllByRole('table')[1]);
     const budgetRows = budgetPrintTable.getAllByRole('row');
+    expect(budgetRows).toHaveLength(3); // header, Acme Ltd, total
     expect(within(budgetRows[1]).getAllByRole('cell')[0]).toHaveTextContent(
       '1',
     );
     expect(within(budgetRows[1]).getByText('Acme Ltd')).toBeInTheDocument();
-    expect(within(budgetRows[2]).getAllByRole('cell')[0]).toHaveTextContent(
-      '2',
-    );
-    expect(within(budgetRows[2]).getByText('Northwind')).toBeInTheDocument();
+    expect(budgetPrintTable.queryByText('Northwind')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Print / Save PDF' }));
     await waitFor(() => expect(savePdf).toHaveBeenCalledTimes(1));
     expect(savePdf.mock.calls[0][0]).toMatch(
@@ -682,25 +698,29 @@ describe('App', () => {
     const dialog = within(
       screen.getByRole('dialog', { name: 'Preview finance report' }),
     );
-    const pages = document.querySelectorAll(
-      '.export-preview-content .print-report-page',
+    const sections = document.querySelectorAll(
+      '.export-preview-content .moon-report-section',
     );
-    expect(pages).toHaveLength(3);
-    within(pages[0] as HTMLElement).getByText('Budget received');
-    within(pages[0] as HTMLElement).getByText('Monthly budget');
+    expect(sections).toHaveLength(3);
+    within(sections[0] as HTMLElement).getByText('1. Budget Transactions');
+    expect(within(sections[0] as HTMLElement).getAllByRole('row')).toHaveLength(
+      3,
+    );
     expect(
-      within(pages[0] as HTMLElement).queryByText('Opening float'),
-    ).not.toBeInTheDocument();
-    within(pages[1] as HTMLElement).getByText('Expenses');
-    expect(
-      within(pages[1] as HTMLElement).getByText(
-        /Total expenses \(2 transactions\)/,
-      ),
-    ).toBeInTheDocument();
+      within(sections[0] as HTMLElement).getAllByText(formatReportAmount(5000)),
+    ).toHaveLength(2);
+    within(sections[1] as HTMLElement).getByText('2. Expense Transactions');
+    within(sections[1] as HTMLElement).getAllByText(
+      formatReportDate(sampleDate),
+    );
+    expect(within(sections[1] as HTMLElement).getAllByRole('row')).toHaveLength(
+      4,
+    );
 
     const totals = within(dialog.getByRole('table', { name: 'Report totals' }));
     const amountFor = (label: string) =>
-      totals.getByText(label).closest('tr')?.querySelector('td')?.textContent;
+      totals.getByText(label).closest('tr')?.querySelector('.amount')
+        ?.textContent;
     const { remainingBudget } = calculateBudgetForPeriod(
       expenses,
       budgetTransactions,
@@ -710,22 +730,14 @@ describe('App', () => {
     const priorExpenses = expenses
       .filter((expense) => expense.date < sampleDate)
       .reduce((sum, expense) => sum + getExpenseTotal(expense), 0);
-    expect(
-      matchesCurrency(1000 - priorExpenses)(
-        amountFor('Balance brought forward') ?? '',
-      ),
-    ).toBe(true);
-    expect(
-      matchesCurrency(5000)(amountFor('Total amount received') ?? ''),
-    ).toBe(true);
-    expect(
-      matchesCurrency(3525)(
-        (amountFor('Total expenses') ?? '').replace(/^− /, ''),
-      ),
-    ).toBe(true);
-    expect(
-      matchesCurrency(remainingBudget)(amountFor('Total remaining') ?? ''),
-    ).toBe(true);
+    expect(amountFor('Balance brought forward')).toBe(
+      formatReportAmount(1000 - priorExpenses),
+    );
+    expect(amountFor('Total Budget')).toBe(formatReportAmount(5000));
+    expect(amountFor('Less: Total Expenses')).toBe(formatReportAmount(3525));
+    expect(amountFor('TOTAL REMAINING')).toBe(
+      formatReportAmount(remainingBudget),
+    );
   });
 
   it('saves the report as a PDF and rejects reversed date ranges', async () => {
@@ -760,17 +772,141 @@ describe('App', () => {
       .getByRole('dialog', { name: 'Preview finance report' })
       .querySelector('.standalone-print-report') as HTMLElement;
     expect(
-      within(report).getAllByText('Moon Trading Contracting & Cleaning'),
+      within(report).getAllByText('MOON TRADING CONTRACTING & CLEANING'),
     ).toHaveLength(1);
-    expect(report.firstElementChild).toHaveClass('report-brand-header');
+    expect(report.firstElementChild).toHaveClass('moon-report-header');
     expect(
-      report.querySelector('.print-report-page .report-brand-header'),
-    ).toBeNull();
-    expect(within(report).getAllByText('1009039045')).toHaveLength(1);
+      within(report).getByRole('img', {
+        name: 'Moon Trading Contracting and Cleaning logo',
+      }),
+    ).toBeInTheDocument();
+    within(report).getByText('BUDGET & EXPENSE REPORT');
     fireEvent.click(screen.getByRole('button', { name: 'Save PDF' }));
     await waitFor(() => expect(savePdf).toHaveBeenCalledTimes(1));
     expect(savePdf.mock.calls[0][0]).toMatch(
       /^finance-report_\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2}_\d{14}$/,
+    );
+  });
+
+  it('offers "Paid to" and budget payee names saved in Settings', async () => {
+    const memory = await renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+    fireEvent.change(screen.getByLabelText('New paid to name'), {
+      target: { value: 'Gulf Cement Co.' },
+    });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[2]);
+    fireEvent.change(screen.getByLabelText('New payee name'), {
+      target: { value: 'Head Office' },
+    });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[3]);
+    await waitFor(() =>
+      expect(memory.snapshot().budgetPayers).toContain('Head Office'),
+    );
+    expect(memory.snapshot().payees).toContain('Gulf Cement Co.');
+
+    fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add expense/i }));
+    expect(
+      within(screen.getByRole('dialog')).getByRole('option', {
+        name: 'Gulf Cement Co.',
+      }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /budgets/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add budget/i }));
+    expect(
+      within(screen.getByRole('dialog')).getByRole('option', {
+        name: 'Head Office',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('adds a newly typed "Paid to" name to the saved list', async () => {
+    const memory = await renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add expense/i }));
+    chooseName('Paid to', 'Brand New Vendor');
+    fireEvent.change(screen.getByLabelText('Particulars / details'), {
+      target: { value: 'Supplies' },
+    });
+    fireEvent.change(screen.getByLabelText('Amount excluding VAT'), {
+      target: { value: '10' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save expense' }));
+    await waitForDialogToClose();
+
+    expect(memory.snapshot().payees).toContain('Brand New Vendor');
+    fireEvent.click(screen.getByRole('button', { name: /add expense/i }));
+    expect(
+      within(screen.getByRole('dialog')).getByRole('option', {
+        name: 'Brand New Vendor',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('renames a "Paid to" name on its expenses and blocks deleting it while used', async () => {
+    const memory = await renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+    const payeeList = within(
+      screen
+        .getByRole('heading', { name: 'Paid to (expenses)' })
+        .closest('section') as HTMLElement,
+    );
+    const row = () =>
+      within(
+        payeeList
+          .getByText('Pacific Building Supply')
+          .closest('li') as HTMLElement,
+      );
+    fireEvent.click(
+      row().getByRole('button', { name: 'Delete Pacific Building Supply' }),
+    );
+    expect(payeeList.getByRole('alert')).toHaveTextContent(/Cannot delete/);
+
+    fireEvent.click(row().getByRole('button', { name: 'Rename' }));
+    fireEvent.change(
+      payeeList.getByLabelText('Rename Pacific Building Supply'),
+      { target: { value: 'Pacific Supply Group' } },
+    );
+    fireEvent.click(payeeList.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(memory.snapshot().payees).toContain('Pacific Supply Group'),
+    );
+    const payees = memory.snapshot().expenses.map((expense) => expense.payee);
+    expect(payees).toContain('Pacific Supply Group');
+    expect(payees).not.toContain('Pacific Building Supply');
+  });
+
+  it('previews and exports the filtered expenses as a PDF', async () => {
+    const memory = await renderApp();
+    const savePdf = jest.spyOn(memory.api.reports, 'savePdf');
+    fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    fireEvent.change(screen.getByLabelText('Filter by payee'), {
+      target: { value: 'Pacific Building Supply' },
+    });
+    const listed = within(screen.getByRole('table')).getAllByRole('row').length;
+    fireEvent.click(screen.getByRole('button', { name: 'Preview PDF' }));
+
+    const preview = within(
+      screen.getByRole('dialog', { name: 'Preview expense PDF' }),
+    );
+    expect(preview.getByText('EXPENSE REPORT')).toBeInTheDocument();
+    expect(
+      preview.getByText('Period: All dates · Paid to: Pacific Building Supply'),
+    ).toBeInTheDocument();
+    const printTable = within(preview.getByRole('table'));
+    // Same rows as the list (header + rows + total in both tables).
+    expect(printTable.getAllByRole('row')).toHaveLength(listed);
+    expect(
+      printTable.queryByText('Evergreen Fuel Co.'),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(preview.getByRole('button', { name: 'Save PDF' }));
+    await waitFor(() => expect(savePdf).toHaveBeenCalledTimes(1));
+    expect(savePdf.mock.calls[0][0]).toMatch(
+      /^expense-transactions_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/,
     );
   });
 });
@@ -790,9 +926,7 @@ describe('App with the database', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Edit transaction' }));
     expect(screen.getByLabelText('Department')).toHaveValue('Field Services');
-    fireEvent.change(screen.getByLabelText('Paid to'), {
-      target: { value: 'Northstar Rentals' },
-    });
+    chooseName('Paid to', 'Northstar Rentals');
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitForDialogToClose();
 
@@ -813,9 +947,7 @@ describe('App with the database', () => {
       .mockRejectedValue(new Error('Could not reach the database server.'));
     fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
     fireEvent.click(screen.getByRole('button', { name: /add expense/i }));
-    fireEvent.change(screen.getByLabelText('Paid to'), {
-      target: { value: 'Offline Vendor' },
-    });
+    chooseName('Paid to', 'Offline Vendor');
     fireEvent.change(screen.getByLabelText('Particulars / details'), {
       target: { value: 'Supplies' },
     });

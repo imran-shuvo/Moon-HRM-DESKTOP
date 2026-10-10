@@ -1,10 +1,14 @@
-import { ReactNode, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   BudgetTransaction,
   Expense,
+  bySerialNo,
   formatCurrency,
+  formatReportAmount,
   getExpenseTotal,
 } from '../model';
+import { BudgetTransactionsTable } from './BudgetPrintableReport';
+import { ExpenseTransactionsTable } from './ExpensePrintableReport';
 import ReportBrandHeader from './ReportBrandHeader';
 import ExportPreviewDialog from './ExportPreviewDialog';
 
@@ -21,14 +25,6 @@ export type PrintableReportData = {
   fileName: string;
   generatedAt: Date;
 };
-
-function formatDate(date: string) {
-  return new Date(`${date}T12:00:00`).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
 
 function createReportFileName(fromDate: string, toDate: string, date: Date) {
   const timestamp = [
@@ -51,15 +47,17 @@ export function createPrintableReportData(
 ): PrintableReportData {
   const generatedAt = new Date();
   const inRange = (date: string) => date >= fromDate && date <= toDate;
-  const byDate = <T extends { date: string }>(a: T, b: T) =>
-    a.date.localeCompare(b.date);
   const sumExpenses = (items: Expense[]) =>
     items.reduce((sum, expense) => sum + getExpenseTotal(expense), 0);
   const sumPayments = (items: BudgetTransaction[]) =>
     items.reduce((sum, payment) => sum + payment.amount, 0);
 
-  const reportExpenses = expenses.filter((e) => inRange(e.date)).sort(byDate);
-  const reportPayments = payments.filter((p) => inRange(p.date)).sort(byDate);
+  const reportExpenses = expenses
+    .filter((e) => inRange(e.date))
+    .sort(bySerialNo);
+  const reportPayments = payments
+    .filter((p) => inRange(p.date))
+    .sort(bySerialNo);
   const openingBalance =
     sumPayments(payments.filter((p) => p.date < fromDate)) -
     sumExpenses(expenses.filter((e) => e.date < fromDate));
@@ -80,181 +78,71 @@ export function createPrintableReportData(
   };
 }
 
-function ReportPage({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="print-report-page">
-      <h2 className="print-page-title">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
 export function PrintableReport({ data }: { data: PrintableReportData }) {
   return (
-    <article className="standalone-print-report">
-      {/* Company header appears once, at the top of the first page. */}
-      <ReportBrandHeader
-        title="Finance report"
-        generatedAt={data.generatedAt}
-      />
-      <div className="print-range">
-        <span>Report period</span>
-        <strong>
-          {formatDate(data.fromDate)} – {formatDate(data.toDate)}
-        </strong>
-      </div>
-      <ReportPage title="Budget received">
-        <div className="table-scroll">
-          <table className="expense-table print-expense-table budget-print-table">
-            <thead>
-              <tr>
-                <th>SERIAL NO.</th>
-                <th>DATE RECEIVED</th>
-                <th>PAID BY</th>
-                <th>PAYMENT METHOD</th>
-                <th>NOTE</th>
-                <th className="amount-cell">AMOUNT</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.payments.map((payment, index) => (
-                <tr key={payment.id}>
-                  <td>{index + 1}</td>
-                  <td>{formatDate(payment.date)}</td>
-                  <td>{payment.paidBy || 'Company'}</td>
-                  <td>{payment.paymentMethod || 'Not specified'}</td>
-                  <td>{payment.note || '—'}</td>
-                  <td className="amount-cell">
-                    {formatCurrency(payment.amount)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th colSpan={5}>
-                  Total amount received ({data.payments.length} transactions)
-                </th>
-                <th className="amount-cell">
-                  {formatCurrency(data.totalReceived)}
-                </th>
-              </tr>
-            </tfoot>
-          </table>
-          {data.payments.length === 0 && (
-            <p className="empty-state">
-              No budget received in this date range.
-            </p>
-          )}
-        </div>
-      </ReportPage>
+    <article className="standalone-print-report moon-report">
+      <ReportBrandHeader title="BUDGET & EXPENSE REPORT" />
+      <section className="moon-report-section">
+        <h2>1. Budget Transactions</h2>
+        <BudgetTransactionsTable
+          payments={data.payments}
+          total={data.totalReceived}
+        />
+      </section>
 
-      <ReportPage title="Expenses">
-        <div className="table-scroll">
-          <table className="expense-table print-expense-table">
-            <thead>
-              <tr>
-                <th>SERIAL NO.</th>
-                <th>DATE</th>
-                <th>PARTICULARS</th>
-                <th>INVOICE NO.</th>
-                <th className="amount-cell">EX VAT</th>
-                <th className="amount-cell">VAT</th>
-                <th className="amount-cell">INCLUDING VAT</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.expenses.map((expense, index) => (
-                <tr key={expense.id}>
-                  <td>{index + 1}</td>
-                  <td>{formatDate(expense.date)}</td>
-                  <td>{expense.particulars || expense.description}</td>
-                  <td>{expense.invoiceNo || '—'}</td>
-                  <td className="amount-cell">
-                    {formatCurrency(
-                      expense.amountExcludingVat ?? expense.amount,
-                    )}
-                  </td>
-                  <td className="amount-cell">
-                    {formatCurrency(expense.vat ?? 0)}
-                  </td>
-                  <td className="amount-cell">
-                    {formatCurrency(getExpenseTotal(expense))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th colSpan={6}>
-                  Total expenses ({data.expenses.length} transactions)
-                </th>
-                <th className="amount-cell">
-                  {formatCurrency(data.totalExpenses)}
-                </th>
-              </tr>
-            </tfoot>
-          </table>
-          {data.expenses.length === 0 && (
-            <p className="empty-state">No expenses in this date range.</p>
-          )}
-        </div>
-      </ReportPage>
+      <section className="moon-report-section">
+        <h2>2. Expense Transactions</h2>
+        <ExpenseTransactionsTable
+          expenses={data.expenses}
+          total={data.totalExpenses}
+          emptyText="No expenses in this period."
+        />
+      </section>
 
-      <ReportPage title="Summary">
-        <div className="print-summary-cards">
-          <div className="print-summary-card received">
-            <span>Total amount received</span>
-            <strong>{formatCurrency(data.totalReceived)}</strong>
-            <small>{data.payments.length} budget payments</small>
-          </div>
-          <div className="print-summary-card spent">
-            <span>Total expenses</span>
-            <strong>{formatCurrency(data.totalExpenses)}</strong>
-            <small>{data.expenses.length} expenses</small>
-          </div>
-          <div
-            className={`print-summary-card remaining${data.remainingBudget < 0 ? ' negative' : ''}`}
-          >
-            <span>Total remaining</span>
-            <strong>{formatCurrency(data.remainingBudget)}</strong>
-            <small>
-              {formatDate(data.fromDate)} – {formatDate(data.toDate)}
-            </small>
-          </div>
-        </div>
-        <h3 className="print-section-subtitle">Calculation</h3>
-        <table className="print-report-totals" aria-label="Report totals">
+      <section className="moon-report-section">
+        <h2>3. Total Remaining</h2>
+        <table
+          aria-label="Report totals"
+          className="moon-report-table moon-report-summary"
+        >
+          <thead>
+            <tr>
+              <th>SUMMARY</th>
+              <th className="amount">AMOUNT (SAR)</th>
+            </tr>
+          </thead>
           <tbody>
             {data.openingBalance !== 0 && (
               <tr>
-                <th>Balance brought forward</th>
-                <td>{formatCurrency(data.openingBalance)}</td>
+                <td>Balance brought forward</td>
+                <td className="amount">
+                  {formatReportAmount(data.openingBalance)}
+                </td>
               </tr>
             )}
             <tr>
-              <th>Total amount received</th>
-              <td>{formatCurrency(data.totalReceived)}</td>
+              <td>Total Budget</td>
+              <td className="amount">
+                {formatReportAmount(data.totalReceived)}
+              </td>
             </tr>
             <tr>
-              <th>Total expenses</th>
-              <td>− {formatCurrency(data.totalExpenses)}</td>
+              <td>Less: Total Expenses</td>
+              <td className="amount">
+                {formatReportAmount(data.totalExpenses)}
+              </td>
             </tr>
           </tbody>
           <tfoot>
             <tr className={data.remainingBudget < 0 ? 'negative' : undefined}>
-              <th>Total remaining</th>
-              <td>{formatCurrency(data.remainingBudget)}</td>
+              <th>TOTAL REMAINING</th>
+              <td className="amount">
+                {formatReportAmount(data.remainingBudget)}
+              </td>
             </tr>
           </tfoot>
         </table>
-      </ReportPage>
+      </section>
     </article>
   );
 }

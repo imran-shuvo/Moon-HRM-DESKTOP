@@ -85,6 +85,53 @@ export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
         ('Administration', 3), ('Sales', 4);
     `,
   },
+  {
+    version: 2,
+    name: 'payee lists',
+    sql: `
+      -- Options for an expense's "Paid to" and a budget payment's payee.
+      -- Not foreign keys: renames and in-use checks are done by the app, so
+      -- names already stored on transactions never block this migration.
+      CREATE TABLE payees (
+        name        TEXT PRIMARY KEY CHECK (length(btrim(name)) BETWEEN 1 AND 100),
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX payees_name_ci_idx ON payees (lower(name));
+
+      CREATE TABLE budget_payers (
+        name        TEXT PRIMARY KEY CHECK (length(btrim(name)) BETWEEN 1 AND 100),
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX budget_payers_name_ci_idx ON budget_payers (lower(name));
+
+      INSERT INTO payees (name, sort_order)
+      SELECT name, row_number() OVER (ORDER BY lower(name))
+      FROM (SELECT DISTINCT ON (lower(payee)) payee AS name
+            FROM expenses WHERE btrim(payee) <> ''
+            GROUP BY payee
+            -- Keep the most used spelling, then the earliest, then capitalised.
+            ORDER BY lower(payee), count(*) DESC, min(created_at),
+                     payee COLLATE "C") AS names;
+
+      INSERT INTO budget_payers (name, sort_order)
+      SELECT name, row_number() OVER (ORDER BY lower(name))
+      FROM (SELECT DISTINCT ON (lower(paid_by)) paid_by AS name
+            FROM budget_receipts WHERE btrim(paid_by) <> ''
+            GROUP BY paid_by
+            -- Keep the most used spelling, then the earliest, then capitalised.
+            ORDER BY lower(paid_by), count(*) DESC, min(created_at),
+                     paid_by COLLATE "C") AS names;
+
+      -- One spelling per name, so renames and in-use checks match exactly.
+      UPDATE expenses e SET payee = p.name
+      FROM payees p WHERE lower(e.payee) = lower(p.name) AND e.payee <> p.name;
+      UPDATE budget_receipts r SET paid_by = p.name
+      FROM budget_payers p
+      WHERE lower(r.paid_by) = lower(p.name) AND r.paid_by <> p.name;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

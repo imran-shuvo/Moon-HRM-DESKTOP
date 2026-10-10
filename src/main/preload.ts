@@ -45,6 +45,16 @@ const financeApi: FinanceApi = {
     rename: (previous, next) => invoke(IPC.departmentRename, previous, next),
     remove: (name) => invoke(IPC.departmentDelete, name),
   },
+  payees: {
+    add: (name) => invoke(IPC.payeeAdd, name),
+    rename: (previous, next) => invoke(IPC.payeeRename, previous, next),
+    remove: (name) => invoke(IPC.payeeDelete, name),
+  },
+  budgetPayers: {
+    add: (name) => invoke(IPC.budgetPayerAdd, name),
+    rename: (previous, next) => invoke(IPC.budgetPayerRename, previous, next),
+    remove: (name) => invoke(IPC.budgetPayerDelete, name),
+  },
   backup: {
     settings: () => invoke(IPC.backupSettings),
     updateSettings: (settings) => invoke(IPC.backupUpdateSettings, settings),

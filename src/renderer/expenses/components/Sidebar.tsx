@@ -1,3 +1,4 @@
+import moonLogo from '../../../../assets/moon-logo.png';
 import { formatCurrency, Section } from '../model';
 
 const NAVIGATION: { label: Section; icon: string }[] = [
@@ -23,13 +24,11 @@ export default function Sidebar({
   return (
     <aside className="sidebar">
       <div className="brand-lockup">
-        <div className="brand-mark">
-          m<span>.</span>
-        </div>
-        <div className="brand-copy">
-          <strong>moon</strong>
-          <span>CONTRACTING &amp; CLEANING</span>
-        </div>
+        <img
+          alt="Moon Trading Contracting and Cleaning"
+          className="brand-logo"
+          src={moonLogo}
+        />
       </div>
       <div className="workspace-label">WORKSPACE</div>
       <nav aria-label="Main navigation">

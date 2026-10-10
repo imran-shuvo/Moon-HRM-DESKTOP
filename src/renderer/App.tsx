@@ -18,8 +18,10 @@ import {
   getExpenseTotal,
   getMonthDateRange,
   getMonthlyExpenseSummaries,
+  inDateRange,
   monthToDate,
   plural,
+  withSerialNumbers,
 } from './expenses/model';
 import { FinanceApiProvider, errorMessage } from './data/FinanceApiContext';
 import {
@@ -38,19 +40,28 @@ import BudgetPaymentDialog from './expenses/components/BudgetPaymentDialog';
 import BudgetPrintableReport, {
   PrintableBudgetReportData,
 } from './expenses/components/BudgetPrintableReport';
-import CategoryDepartmentManager from './expenses/components/CategoryDepartmentManager';
+import CategoryDepartmentManager, {
+  ListHandlers,
+  ListKind,
+} from './expenses/components/CategoryDepartmentManager';
+import ExpensePrintableReport, {
+  PrintableExpenseReportData,
+} from './expenses/components/ExpensePrintableReport';
 import ReportExportPanel, {
   PrintableReport,
   PrintableReportData,
 } from './expenses/components/ReportExportPanel';
 import BackupPanel from './expenses/components/BackupPanel';
 import DatabaseConnectionForm from './expenses/components/DatabaseConnectionForm';
+import moonLogo from '../../assets/moon-logo.png';
 
 const EMPTY_SNAPSHOT: FinanceSnapshot = {
   expenses: [],
   budgetTransactions: [],
   categories: [],
   departments: [],
+  payees: [],
+  budgetPayers: [],
 };
 
 /** Reload from the database when the window regains focus, at most this often. */
@@ -78,6 +89,66 @@ async function toUploads(files: File[]): Promise<AttachmentUpload[]> {
       data: new Uint8Array(await file.arrayBuffer()),
     })),
   );
+}
+
+/** Adds `name` unless the list already has it (ignoring case). */
+function withName(list: string[], name: string | undefined) {
+  if (!name || list.some((item) => item.toLowerCase() === name.toLowerCase()))
+    return list;
+  return [...list, name];
+}
+
+const LIST_KEYS = {
+  category: 'categories',
+  department: 'departments',
+  payee: 'payees',
+  budgetPayer: 'budgetPayers',
+} as const satisfies Record<ListKind, keyof FinanceApi>;
+
+/** Mirrors on loaded transactions a rename the database applied to them. */
+function renameInSnapshot(
+  data: FinanceSnapshot,
+  kind: ListKind,
+  previous: string,
+  next: string,
+): FinanceSnapshot {
+  const rename = (value: string | undefined) =>
+    value === previous ? next : value;
+  switch (kind) {
+    case 'category':
+      return {
+        ...data,
+        expenses: data.expenses.map((expense) =>
+          expense.category === previous
+            ? { ...expense, category: next, type: next }
+            : expense,
+        ),
+      };
+    case 'department':
+      return {
+        ...data,
+        expenses: data.expenses.map((expense) => ({
+          ...expense,
+          department: rename(expense.department) ?? '',
+        })),
+      };
+    case 'payee':
+      return {
+        ...data,
+        expenses: data.expenses.map((expense) => ({
+          ...expense,
+          payee: rename(expense.payee) ?? '',
+        })),
+      };
+    default:
+      return {
+        ...data,
+        budgetTransactions: data.budgetTransactions.map((payment) => ({
+          ...payment,
+          paidBy: rename(payment.paidBy),
+        })),
+      };
+  }
 }
 
 function upsert<T extends { id: string }>(items: T[], item: T): T[] {
@@ -116,7 +187,7 @@ const TITLES: Record<Section, { title: string; subtitle: string }> = {
   },
   Settings: {
     title: 'Settings',
-    subtitle: 'Export reports and manage categories and departments.',
+    subtitle: 'Export reports and manage payees, categories and departments.',
   },
   Backup: {
     title: 'Backup & restore',
@@ -136,11 +207,21 @@ export default function App({ api }: { api: FinanceApi }) {
     kind: 'ok' | 'error';
     text: string;
   }>();
-  const { expenses, budgetTransactions, categories, departments } = data;
+  const { categories, departments, payees, budgetPayers } = data;
+  const expenses = useMemo(
+    () => withSerialNumbers(data.expenses),
+    [data.expenses],
+  );
+  const budgetTransactions = useMemo(
+    () => withSerialNumbers(data.budgetTransactions),
+    [data.budgetTransactions],
+  );
   const [section, setSection] = useState<Section>('Overview');
   const [printReport, setPrintReport] = useState<PrintableReportData>();
   const [printBudgetReport, setPrintBudgetReport] =
     useState<PrintableBudgetReportData>();
+  const [printExpenseReport, setPrintExpenseReport] =
+    useState<PrintableExpenseReportData>();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense>();
   const [selectedExpense, setSelectedExpense] = useState<Expense>();
@@ -150,7 +231,8 @@ export default function App({ api }: { api: FinanceApi }) {
   const [paymentToDelete, setPaymentToDelete] = useState<BudgetTransaction>();
   const [deleting, setDeleting] = useState(false);
   const [search, setSearch] = useState('');
-  const [transactionMonth, setTransactionMonth] = useState('');
+  const [transactionFrom, setTransactionFrom] = useState('');
+  const [transactionTo, setTransactionTo] = useState('');
   const [transactionPayee, setTransactionPayee] = useState('');
   const loadingRef = useRef(false);
 
@@ -270,6 +352,13 @@ export default function App({ api }: { api: FinanceApi }) {
     setPrintReport(report);
   }, []);
 
+  const prepareExpensePdfExport = useCallback(
+    (report: PrintableExpenseReportData) => {
+      setPrintExpenseReport(report);
+    },
+    [],
+  );
+
   const prepareBudgetPdfExport = useCallback(
     (report: PrintableBudgetReportData) => {
       setPrintBudgetReport(report);
@@ -279,7 +368,10 @@ export default function App({ api }: { api: FinanceApi }) {
 
   // Once the printable report is mounted, the main process saves it as a PDF.
   useEffect(() => {
-    const fileName = printBudgetReport?.fileName ?? printReport?.fileName;
+    const fileName =
+      printBudgetReport?.fileName ??
+      printExpenseReport?.fileName ??
+      printReport?.fileName;
     if (!fileName) return undefined;
 
     let active = true;
@@ -300,6 +392,7 @@ export default function App({ api }: { api: FinanceApi }) {
         if (active) {
           setPrintReport(undefined);
           setPrintBudgetReport(undefined);
+          setPrintExpenseReport(undefined);
         }
       }
     }, 100);
@@ -307,7 +400,7 @@ export default function App({ api }: { api: FinanceApi }) {
       active = false;
       window.clearTimeout(timeout);
     };
-  }, [api, printReport, printBudgetReport]);
+  }, [api, printReport, printBudgetReport, printExpenseReport]);
 
   const monthExpenses = useMemo(() => monthToDate(expenses), [expenses]);
   const { start: currentMonthStart, end: currentMonthEnd } =
@@ -326,9 +419,8 @@ export default function App({ api }: { api: FinanceApi }) {
   const transactionEntries = useMemo(() => {
     const query = search.trim().toLowerCase();
     return [...expenses]
-      .filter(
-        (expense) =>
-          !transactionMonth || expense.date.slice(0, 7) === transactionMonth,
+      .filter((expense) =>
+        inDateRange(expense.date, transactionFrom, transactionTo),
       )
       .filter(
         (expense) => !transactionPayee || expense.payee === transactionPayee,
@@ -351,7 +443,7 @@ export default function App({ api }: { api: FinanceApi }) {
           .includes(query),
       )
       .sort((a, b) => b.date.localeCompare(a.date));
-  }, [expenses, search, transactionMonth, transactionPayee]);
+  }, [expenses, search, transactionFrom, transactionTo, transactionPayee]);
 
   const saveExpense = useCallback(
     async (input: ExpenseInput, files: File[]) => {
@@ -362,6 +454,8 @@ export default function App({ api }: { api: FinanceApi }) {
       setData((current) => ({
         ...current,
         expenses: upsert(current.expenses, saved),
+        // A new "Paid to" name is added to the saved list by the database.
+        payees: withName(current.payees, saved.payee),
       }));
       setEditingExpense(undefined);
       setDialogOpen(false);
@@ -446,6 +540,7 @@ export default function App({ api }: { api: FinanceApi }) {
       setData((current) => ({
         ...current,
         budgetTransactions: upsert(current.budgetTransactions, saved),
+        budgetPayers: withName(current.budgetPayers, saved.paidBy),
       }));
       setEditingPayment(undefined);
       setPaymentDialogOpen(false);
@@ -481,86 +576,40 @@ export default function App({ api }: { api: FinanceApi }) {
     setExpenseToDelete(undefined);
   }, []);
 
-  const addCategory = useCallback(
-    async (value: string) => {
-      await api.categories.add(value);
-      setData((current) => ({
-        ...current,
-        categories: [...current.categories, value],
-      }));
-    },
-    [api],
-  );
-
-  const deleteCategory = useCallback(
-    async (value: string) => {
-      await api.categories.remove(value);
-      setData((current) => ({
-        ...current,
-        categories: current.categories.filter((item) => item !== value),
-      }));
-    },
-    [api],
-  );
-
-  const addDepartment = useCallback(
-    async (value: string) => {
-      await api.departments.add(value);
-      setData((current) => ({
-        ...current,
-        departments: [...current.departments, value],
-      }));
-    },
-    [api],
-  );
-
-  const deleteDepartment = useCallback(
-    async (value: string) => {
-      await api.departments.remove(value);
-      setData((current) => ({
-        ...current,
-        departments: current.departments.filter((item) => item !== value),
-      }));
-    },
-    [api],
-  );
-
-  // The database cascades renames to expenses; mirror that locally.
-  const renameCategory = useCallback(
-    async (previous: string, next: string) => {
-      await api.categories.rename(previous, next);
-      setData((current) => ({
-        ...current,
-        categories: current.categories.map((item) =>
-          item === previous ? next : item,
-        ),
-        expenses: current.expenses.map((expense) =>
-          expense.category === previous
-            ? { ...expense, category: next, type: next }
-            : expense,
-        ),
-      }));
-    },
-    [api],
-  );
-
-  const renameDepartment = useCallback(
-    async (previous: string, next: string) => {
-      await api.departments.rename(previous, next);
-      setData((current) => ({
-        ...current,
-        departments: current.departments.map((item) =>
-          item === previous ? next : item,
-        ),
-        expenses: current.expenses.map((expense) =>
-          expense.department === previous
-            ? { ...expense, department: next }
-            : expense,
-        ),
-      }));
-    },
-    [api],
-  );
+  // Category/department renames cascade in the database, payee renames are
+  // applied by it too; mirror either locally.
+  const listHandlers = useMemo(() => {
+    const handlers = {} as Record<ListKind, ListHandlers>;
+    (Object.keys(LIST_KEYS) as ListKind[]).forEach((kind) => {
+      const key = LIST_KEYS[kind];
+      handlers[kind] = {
+        onAdd: async (value) => {
+          await api[key].add(value);
+          setData((current) => ({
+            ...current,
+            [key]: [...current[key], value],
+          }));
+        },
+        onRename: async (previous, next) => {
+          await api[key].rename(previous, next);
+          setData((current) => ({
+            ...renameInSnapshot(current, kind, previous, next),
+            [key]: current[key].map((item) =>
+              item === previous ? next : item,
+            ),
+          }));
+        },
+        onDelete: async (value) => {
+          await api[key].remove(value);
+          setData((current) => ({
+            ...current,
+            [key]: current[key].filter((item) => item !== value),
+          }));
+        },
+      };
+    });
+    return handlers;
+  }, [api]);
 
   if (loadState !== 'ready') {
     return (
@@ -568,13 +617,11 @@ export default function App({ api }: { api: FinanceApi }) {
         <main className="startup-screen">
           <section className="panel startup-card">
             <div className="brand-lockup">
-              <div className="brand-mark">
-                m<span>.</span>
-              </div>
-              <div className="brand-copy">
-                <strong>moon</strong>
-                <span>CONTRACTING &amp; CLEANING</span>
-              </div>
+              <img
+                alt="Moon Trading Contracting and Cleaning"
+                className="brand-logo"
+                src={moonLogo}
+              />
             </div>
             {(loadState === 'checking' || loadState === 'loading') && (
               <p className="startup-status" role="status">
@@ -754,22 +801,29 @@ export default function App({ api }: { api: FinanceApi }) {
             {section === 'Transactions' && (
               <TransactionPanel
                 expenses={transactionEntries}
-                month={transactionMonth}
+                fromDate={transactionFrom}
+                toDate={transactionTo}
                 payee={transactionPayee}
                 search={search}
                 payees={[
-                  ...new Set(expenses.map((expense) => expense.payee)),
-                ].sort()}
-                onMonthChange={setTransactionMonth}
+                  ...new Set([
+                    ...payees,
+                    ...expenses.map((expense) => expense.payee),
+                  ]),
+                ].sort((a, b) => a.localeCompare(b))}
+                onFromDateChange={setTransactionFrom}
+                onToDateChange={setTransactionTo}
                 onPayeeChange={setTransactionPayee}
                 onSearchChange={setSearch}
                 onSelect={setSelectedExpense}
+                onExportPdf={prepareExpensePdfExport}
               />
             )}
 
             {section === 'Budgets' && (
               <BudgetManagementPanel
                 payments={budgetTransactions}
+                payers={budgetPayers}
                 onAddPayment={openBudgetPaymentDialog}
                 onEditPayment={openEditBudgetPayment}
                 onDeletePayment={requestDeleteBudgetPayment}
@@ -793,15 +847,15 @@ export default function App({ api }: { api: FinanceApi }) {
                   onExportPdf={preparePdfExport}
                 />
                 <CategoryDepartmentManager
-                  categories={categories}
-                  departments={departments}
+                  lists={{
+                    category: categories,
+                    department: departments,
+                    payee: payees,
+                    budgetPayer: budgetPayers,
+                  }}
                   expenses={expenses}
-                  onAddCategory={addCategory}
-                  onRenameCategory={renameCategory}
-                  onDeleteCategory={deleteCategory}
-                  onAddDepartment={addDepartment}
-                  onRenameDepartment={renameDepartment}
-                  onDeleteDepartment={deleteDepartment}
+                  payments={budgetTransactions}
+                  handlers={listHandlers}
                 />
               </>
             )}
@@ -839,12 +893,14 @@ export default function App({ api }: { api: FinanceApi }) {
             onSubmit={saveExpense}
             categories={categories}
             departments={departments}
+            payees={payees}
             expense={editingExpense}
           />
         )}
         {paymentDialogOpen && (
           <BudgetPaymentDialog
             payment={editingPayment}
+            payers={budgetPayers}
             onClose={closeBudgetPaymentDialog}
             onSubmit={saveBudgetPayment}
           />
@@ -939,6 +995,9 @@ export default function App({ api }: { api: FinanceApi }) {
       </div>
       {printReport && <PrintableReport data={printReport} />}
       {printBudgetReport && <BudgetPrintableReport data={printBudgetReport} />}
+      {printExpenseReport && (
+        <ExpensePrintableReport data={printExpenseReport} />
+      )}
     </FinanceApiProvider>
   );
 }

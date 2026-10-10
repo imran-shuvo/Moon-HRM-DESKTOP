@@ -52,6 +52,32 @@ export function monthToDate(expenses: Expense[]) {
   return expenses.filter((expense) => expense.date.startsWith(month));
 }
 
+/**
+ * Numbers records by the order they were entered, so an entry keeps its
+ * serial no. when newer (or back-dated) entries are added.
+ */
+export function withSerialNumbers<T extends { id: string; createdAt?: number }>(
+  records: T[],
+): T[] {
+  const serials = new Map(
+    [...records]
+      .sort(
+        (a, b) =>
+          (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id),
+      )
+      .map((record, index) => [record.id, index + 1]),
+  );
+  return records.map((record) => ({
+    ...record,
+    serialNo: serials.get(record.id),
+  }));
+}
+
+/** Sort comparator: lowest serial no. first. */
+export function bySerialNo(a: { serialNo?: number }, b: { serialNo?: number }) {
+  return (a.serialNo ?? 0) - (b.serialNo ?? 0);
+}
+
 export function getExpenseTotal(expense: Expense) {
   return expense.amountIncludingVat ?? expense.amount;
 }
@@ -118,6 +144,68 @@ export function formatCurrency(value: number) {
   return new Intl.NumberFormat('en-SA', {
     style: 'currency',
     currency: 'SAR',
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+const REPORT_MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/** Printed report dates, e.g. '2026-10-07' → '07-Oct-2026'. */
+export function formatReportDate(date: string | Date) {
+  const [year, month, day] =
+    typeof date === 'string'
+      ? date.slice(0, 10).split('-').map(Number)
+      : [date.getFullYear(), date.getMonth() + 1, date.getDate()];
+  return `${String(day).padStart(2, '0')}-${REPORT_MONTHS[month - 1]}-${year}`;
+}
+
+/** File-name timestamp, e.g. 2026-10-10_14-30-05. */
+export function fileTimestamp(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+}
+
+/** Keeps records dated within an optional inclusive YYYY-MM-DD range. */
+export function inDateRange(date: string, fromDate: string, toDate: string) {
+  return (!fromDate || date >= fromDate) && (!toDate || date <= toDate);
+}
+
+/** Printed description of a report's filters, e.g. "Period: … · Paid to: …". */
+export function describeReportFilters(
+  fromDate: string,
+  toDate: string,
+  extra: [label: string, value: string][],
+) {
+  let period = 'All dates';
+  if (fromDate && toDate)
+    period = `${formatReportDate(fromDate)} to ${formatReportDate(toDate)}`;
+  else if (fromDate) period = `From ${formatReportDate(fromDate)}`;
+  else if (toDate) period = `Up to ${formatReportDate(toDate)}`;
+  return [
+    `Period: ${period}`,
+    ...extra
+      .filter(([, value]) => value)
+      .map(([label, value]) => `${label}: ${value}`),
+  ].join(' · ');
+}
+
+/** Printed report amounts without a currency symbol, e.g. 188000 → '188,000.00'. */
+export function formatReportAmount(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
 }

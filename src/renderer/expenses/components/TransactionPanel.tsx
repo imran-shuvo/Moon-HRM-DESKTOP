@@ -1,27 +1,59 @@
-import { Expense } from '../model';
+import { useState } from 'react';
+import {
+  Expense,
+  bySerialNo,
+  describeReportFilters,
+  fileTimestamp,
+} from '../model';
 import ExpenseListTable from './ExpenseListTable';
+import ExpensePrintableReport, {
+  PrintableExpenseReportData,
+} from './ExpensePrintableReport';
+import ExportPreviewDialog from './ExportPreviewDialog';
 
 export default function TransactionPanel({
   expenses,
-  month,
+  fromDate,
+  toDate,
   payee,
   search,
   payees,
-  onMonthChange,
+  onFromDateChange,
+  onToDateChange,
   onPayeeChange,
   onSearchChange,
   onSelect,
+  onExportPdf,
 }: {
   expenses: Expense[];
-  month: string;
+  fromDate: string;
+  toDate: string;
   payee: string;
   search: string;
   payees: string[];
-  onMonthChange: (value: string) => void;
+  onFromDateChange: (value: string) => void;
+  onToDateChange: (value: string) => void;
   onPayeeChange: (value: string) => void;
   onSearchChange: (value: string) => void;
   onSelect: (expense: Expense) => void;
+  onExportPdf: (data: PrintableExpenseReportData) => void;
 }) {
+  const [previewData, setPreviewData] = useState<PrintableExpenseReportData>();
+
+  /** The PDF contains exactly the expenses listed under these filters. */
+  function createReportData(): PrintableExpenseReportData {
+    const generatedAt = new Date();
+    return {
+      expenses: [...expenses].sort(bySerialNo),
+      filterSummary: describeReportFilters(fromDate, toDate, [
+        ['Paid to', payee || 'All'],
+        ['Search', search.trim() && `"${search.trim()}"`],
+      ]),
+      fileName: `expense-transactions_${fileTimestamp(generatedAt)}`,
+      generatedAt,
+    };
+  }
+
   return (
     <section className="panel full-panel">
       <div className="panel-heading transaction-heading">
@@ -30,28 +62,41 @@ export default function TransactionPanel({
           <p>{expenses.length} expense transactions match these filters</p>
         </div>
         <div className="transaction-filters">
-          <label className="filter-control" htmlFor="transaction-month">
-            Month
+          <label className="filter-control" htmlFor="transaction-from">
+            From
             <input
-              aria-label="Filter by month"
-              id="transaction-month"
-              type="month"
-              value={month}
-              onChange={(event) => onMonthChange(event.currentTarget.value)}
+              aria-label="Filter expenses from date"
+              id="transaction-from"
+              type="date"
+              value={fromDate}
+              onChange={(event) => onFromDateChange(event.currentTarget.value)}
             />
           </label>
-          {month && (
+          <label className="filter-control" htmlFor="transaction-to">
+            To
+            <input
+              aria-label="Filter expenses to date"
+              id="transaction-to"
+              type="date"
+              value={toDate}
+              onChange={(event) => onToDateChange(event.currentTarget.value)}
+            />
+          </label>
+          {(fromDate || toDate) && (
             <button
-              aria-label="Clear month filter"
+              aria-label="Clear date filter"
               className="button button-secondary clear-filter"
-              onClick={() => onMonthChange('')}
+              onClick={() => {
+                onFromDateChange('');
+                onToDateChange('');
+              }}
               type="button"
             >
-              Clear month
+              Clear dates
             </button>
           )}
           <label className="filter-control" htmlFor="transaction-payee">
-            Payee
+            Paid to
             <select
               aria-label="Filter by payee"
               id="transaction-payee"
@@ -74,11 +119,44 @@ export default function TransactionPanel({
               placeholder="Search expenses"
             />
           </label>
+          <button
+            className="button button-secondary"
+            onClick={() => onExportPdf(createReportData())}
+            type="button"
+          >
+            ↓ Export expenses as PDF
+          </button>
+          <button
+            className="button button-secondary"
+            onClick={() => setPreviewData(createReportData())}
+            type="button"
+          >
+            Preview PDF
+          </button>
         </div>
       </div>
+      {fromDate && toDate && fromDate > toDate && (
+        <p className="form-error transaction-filter-error" role="alert">
+          The From date must be on or before the To date.
+        </p>
+      )}
       <ExpenseListTable expenses={expenses} onSelect={onSelect} />
       {expenses.length === 0 && (
         <p className="empty-state">No expenses match these filters.</p>
+      )}
+      {previewData && (
+        <ExportPreviewDialog
+          title="Preview expense PDF"
+          exportLabel="Save PDF"
+          error={undefined}
+          onClose={() => setPreviewData(undefined)}
+          onExport={() => {
+            onExportPdf(previewData);
+            setPreviewData(undefined);
+          }}
+        >
+          <ExpensePrintableReport data={previewData} />
+        </ExportPreviewDialog>
       )}
     </section>
   );

@@ -1,18 +1,63 @@
-import { BudgetTransaction, formatCurrency } from '../model';
+import {
+  BudgetTransaction,
+  bySerialNo,
+  formatReportAmount,
+  formatReportDate,
+} from '../model';
 import ReportBrandHeader from './ReportBrandHeader';
 
 export type PrintableBudgetReportData = {
   payments: BudgetTransaction[];
+  /** e.g. "Period: All dates · Payee: Acme Ltd" */
+  filterSummary?: string;
   fileName: string;
   generatedAt: Date;
 };
 
-function formatDate(value: string) {
-  return new Date(`${value}T12:00:00`).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
+export function BudgetTransactionsTable({
+  payments,
+  total,
+}: {
+  payments: BudgetTransaction[];
+  total: number;
+}) {
+  return (
+    <table className="moon-report-table moon-report-budget">
+      <thead>
+        <tr>
+          <th className="sl">SL NO</th>
+          <th>DATE</th>
+          <th>PAID BY</th>
+          <th className="amount">AMOUNT (SAR)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {[...payments].sort(bySerialNo).map((payment) => (
+          <tr key={payment.id}>
+            <td className="sl">{payment.serialNo}</td>
+            <td>{formatReportDate(payment.date)}</td>
+            <td>{payment.paidBy || 'Company'}</td>
+            <td className="amount">{formatReportAmount(payment.amount)}</td>
+          </tr>
+        ))}
+        {payments.length === 0 && (
+          <tr>
+            <td className="empty" colSpan={4}>
+              No budget transactions in this period.
+            </td>
+          </tr>
+        )}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td />
+          <td />
+          <th>TOTAL BUDGET</th>
+          <td className="amount">{formatReportAmount(total)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  );
 }
 
 export default function BudgetPrintableReport({
@@ -23,63 +68,15 @@ export default function BudgetPrintableReport({
   const total = data.payments.reduce((sum, payment) => sum + payment.amount, 0);
 
   return (
-    <article className="standalone-print-report">
-      <ReportBrandHeader
-        title="Budget transactions"
-        generatedAt={data.generatedAt}
-      />
-      <section
-        className="print-report-summary budget-print-summary"
-        aria-label="Budget totals"
-      >
-        <div>
-          <span>Total budget received</span>
-          <strong>{formatCurrency(total)}</strong>
-        </div>
-        <div>
-          <span>Transactions</span>
-          <strong>{data.payments.length}</strong>
-        </div>
+    <article className="standalone-print-report moon-report">
+      <ReportBrandHeader title="BUDGET REPORT" />
+      {data.filterSummary && (
+        <p className="moon-report-filters">{data.filterSummary}</p>
+      )}
+      <section className="moon-report-section">
+        <h2>1. Budget Transactions</h2>
+        <BudgetTransactionsTable payments={data.payments} total={total} />
       </section>
-      <div className="table-scroll">
-        <table className="expense-table print-expense-table budget-print-table">
-          <thead>
-            <tr>
-              <th>SERIAL NO.</th>
-              <th>DATE RECEIVED</th>
-              <th>PAID BY</th>
-              <th>PAYMENT METHOD</th>
-              <th>NOTE</th>
-              <th className="amount-cell">AMOUNT</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.payments.map((payment, index) => (
-              <tr key={payment.id}>
-                <td>{index + 1}</td>
-                <td>{formatDate(payment.date)}</td>
-                <td>{payment.paidBy || 'Company'}</td>
-                <td>{payment.paymentMethod || 'Not specified'}</td>
-                <td>{payment.note || '—'}</td>
-                <td className="amount-cell">
-                  {formatCurrency(payment.amount)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <th colSpan={5}>
-                Total budget received ({data.payments.length} transactions)
-              </th>
-              <th className="amount-cell">{formatCurrency(total)}</th>
-            </tr>
-          </tfoot>
-        </table>
-        {data.payments.length === 0 && (
-          <p className="empty-state">No budget transactions to export.</p>
-        )}
-      </div>
     </article>
   );
 }

@@ -9,9 +9,11 @@ import {
   ExpenseInput,
   FinanceApi,
   FinanceSnapshot,
+  ListApi,
 } from '../../shared/types';
 import {
   listName,
+  payeeName,
   validateBudgetTransactionInput,
   validateExpenseInput,
   validateUploads,
@@ -57,6 +59,16 @@ function toExpense(
   };
 }
 
+/** Distinct non-empty names, first spelling wins, ignoring case. */
+function distinctNames(names: (string | undefined)[]) {
+  const seen = new Map<string, string>();
+  names.forEach((name) => {
+    if (name && !seen.has(name.toLowerCase()))
+      seen.set(name.toLowerCase(), name);
+  });
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
 function toPayment(
   id: string,
   input: BudgetTransactionInput,
@@ -75,6 +87,14 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
     budgetTransactions: [...(seed.budgetTransactions ?? [])],
     categories: [...(seed.categories ?? DEFAULT_CATEGORIES)],
     departments: [...(seed.departments ?? DEFAULT_DEPARTMENTS)],
+    payees:
+      seed.payees ??
+      distinctNames((seed.expenses ?? []).map((expense) => expense.payee)),
+    budgetPayers:
+      seed.budgetPayers ??
+      distinctNames(
+        (seed.budgetTransactions ?? []).map((payment) => payment.paidBy),
+      ),
   };
   const files = new Map<string, AttachmentUpload>();
   const backups: BackupFileInfo[] = [];
@@ -111,46 +131,100 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
     }
   }
 
-  function listApi(
-    key: 'categories' | 'departments',
-    field: 'category' | 'department',
-  ) {
-    const label = key === 'categories' ? 'Category' : 'Department';
+  type ListKey = 'categories' | 'departments' | 'payees' | 'budgetPayers';
+
+  /** Same rules as the database: payee lists have no foreign keys. */
+  const LISTS: Record<
+    ListKey,
+    {
+      label: string;
+      validate: (value: unknown, label: string) => string;
+      isUsed: (name: string) => boolean;
+      rename: (previous: string, next: string) => void;
+    }
+  > = {
+    categories: {
+      label: 'Category',
+      validate: listName,
+      isUsed: (name) => state.expenses.some((e) => e.category === name),
+      rename: (previous, next) => {
+        state.expenses = state.expenses.map((e) =>
+          e.category === previous ? { ...e, category: next, type: next } : e,
+        );
+      },
+    },
+    departments: {
+      label: 'Department',
+      validate: listName,
+      isUsed: (name) => state.expenses.some((e) => e.department === name),
+      rename: (previous, next) => {
+        state.expenses = state.expenses.map((e) =>
+          e.department === previous ? { ...e, department: next } : e,
+        );
+      },
+    },
+    payees: {
+      label: 'Paid to',
+      validate: payeeName,
+      isUsed: (name) => state.expenses.some((e) => e.payee === name),
+      rename: (previous, next) => {
+        state.expenses = state.expenses.map((e) =>
+          e.payee === previous ? { ...e, payee: next } : e,
+        );
+      },
+    },
+    budgetPayers: {
+      label: 'Payee',
+      validate: payeeName,
+      isUsed: (name) => state.budgetTransactions.some((p) => p.paidBy === name),
+      rename: (previous, next) => {
+        state.budgetTransactions = state.budgetTransactions.map((p) =>
+          p.paidBy === previous ? { ...p, paidBy: next } : p,
+        );
+      },
+    },
+  };
+
+  /** Returns the stored spelling of `name`, adding it if it is new. */
+  function ensureListItem(key: 'payees' | 'budgetPayers', name: string) {
+    const existing = state[key].find(
+      (item) => item.toLowerCase() === name.toLowerCase(),
+    );
+    if (existing) return existing;
+    state[key] = [...state[key], name];
+    return name;
+  }
+
+  function listApi(key: ListKey): ListApi {
+    const { label, validate, isUsed, rename } = LISTS[key];
     const exists = (name: string) =>
       state[key].some((item) => item.toLowerCase() === name.toLowerCase());
     return {
       add: async (value: string) => {
-        const name = listName(value, label);
+        const name = validate(value, label);
         if (exists(name))
           throw new AppError('CONFLICT', 'That name already exists.');
         state[key] = [...state[key], name];
       },
       rename: async (previous: string, next: string) => {
-        const name = listName(next, label);
+        const name = validate(next, label);
         if (name.toLowerCase() !== previous.toLowerCase() && exists(name)) {
           throw new AppError('CONFLICT', 'That name already exists.');
         }
         state[key] = state[key].map((item) =>
           item === previous ? name : item,
         );
-        state.expenses = state.expenses.map((expense) =>
-          expense[field] === previous
-            ? {
-                ...expense,
-                [field]: name,
-                ...(field === 'category' ? { type: name } : {}),
-              }
-            : expense,
-        );
+        rename(previous, name);
       },
       remove: async (name: string) => {
-        if (state.expenses.some((expense) => expense[field] === name)) {
+        if (isUsed(name)) {
           throw new AppError(
             'IN_USE',
             'This item is still used by existing transactions. Edit those transactions first.',
           );
         }
-        if (state[key].length <= 1) {
+        const isPayeeList = key === 'payees' || key === 'budgetPayers';
+        if (!isPayeeList && state[key].length <= 1) {
           throw new AppError(
             'VALIDATION',
             'Keep at least one option available.',
@@ -188,6 +262,7 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
       create: async (rawInput, rawFiles) => {
         const input = validateExpenseInput(rawInput);
         checkCategory(input);
+        input.payee = ensureListItem('payees', input.payee);
         const expense = toExpense(newId(), input);
         expense.attachments = storeFiles(validateUploads(rawFiles));
         state.expenses = [expense, ...state.expenses];
@@ -196,6 +271,7 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
       update: async (id, rawInput, rawFiles) => {
         const input = validateExpenseInput(rawInput);
         checkCategory(input);
+        input.payee = ensureListItem('payees', input.payee);
         const previous = findExpense(id);
         const expense = toExpense(id, input, previous);
         expense.attachments = [
@@ -219,10 +295,9 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
     },
     budgets: {
       create: async (rawInput) => {
-        const payment = toPayment(
-          newId(),
-          validateBudgetTransactionInput(rawInput),
-        );
+        const input = validateBudgetTransactionInput(rawInput);
+        input.paidBy = ensureListItem('budgetPayers', input.paidBy);
+        const payment = toPayment(newId(), input);
         state.budgetTransactions = [payment, ...state.budgetTransactions];
         return { ...payment };
       },
@@ -236,11 +311,9 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
             'That budget payment no longer exists.',
           );
         }
-        const payment = toPayment(
-          id,
-          validateBudgetTransactionInput(rawInput),
-          previous,
-        );
+        const input = validateBudgetTransactionInput(rawInput);
+        input.paidBy = ensureListItem('budgetPayers', input.paidBy);
+        const payment = toPayment(id, input, previous);
         state.budgetTransactions = state.budgetTransactions.map((item) =>
           item.id === id ? payment : item,
         );
@@ -252,8 +325,10 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
         );
       },
     },
-    categories: listApi('categories', 'category'),
-    departments: listApi('departments', 'department'),
+    categories: listApi('categories'),
+    departments: listApi('departments'),
+    payees: listApi('payees'),
+    budgetPayers: listApi('budgetPayers'),
     backup: {
       settings: async () => ({ ...backupSettings }),
       updateSettings: async (settings) => {

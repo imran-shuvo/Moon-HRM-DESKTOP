@@ -1,5 +1,12 @@
 import { useMemo, useState } from 'react';
-import { BudgetTransaction, formatCurrency } from '../model';
+import {
+  BudgetTransaction,
+  bySerialNo,
+  describeReportFilters,
+  fileTimestamp,
+  formatCurrency,
+  inDateRange,
+} from '../model';
 import BudgetPaymentsTable from './BudgetPaymentsTable';
 import BudgetPrintableReport, {
   PrintableBudgetReportData,
@@ -8,32 +15,39 @@ import ExportPreviewDialog from './ExportPreviewDialog';
 
 export default function BudgetManagementPanel({
   payments,
+  payers: savedPayers,
   onAddPayment,
   onEditPayment,
   onDeletePayment,
   onExportPdf,
 }: {
   payments: BudgetTransaction[];
+  /** Payees saved in Settings. */
+  payers: string[];
   onAddPayment: () => void;
   onEditPayment: (payment: BudgetTransaction) => void;
   onDeletePayment: (payment: BudgetTransaction) => void;
   onExportPdf: (data: PrintableBudgetReportData) => void;
 }) {
-  const [month, setMonth] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [paidBy, setPaidBy] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [previewData, setPreviewData] = useState<PrintableBudgetReportData>();
   const payers = useMemo(
     () =>
       [
-        ...new Set(payments.map((payment) => payment.paidBy || 'Company')),
-      ].sort(),
-    [payments],
+        ...new Set([
+          ...savedPayers,
+          ...payments.map((payment) => payment.paidBy || 'Company'),
+        ]),
+      ].sort((a, b) => a.localeCompare(b)),
+    [savedPayers, payments],
   );
   const filteredPayments = useMemo(
     () =>
       [...payments]
-        .filter((payment) => !month || payment.date.slice(0, 7) === month)
+        .filter((payment) => inDateRange(payment.date, fromDate, toDate))
         .filter(
           (payment) => !paidBy || (payment.paidBy || 'Company') === paidBy,
         )
@@ -42,28 +56,23 @@ export default function BudgetManagementPanel({
             !paymentMethod || (payment.paymentMethod || '') === paymentMethod,
         )
         .sort((a, b) => b.date.localeCompare(a.date)),
-    [payments, month, paidBy, paymentMethod],
+    [payments, fromDate, toDate, paidBy, paymentMethod],
   );
   const received = filteredPayments.reduce(
     (total, payment) => total + payment.amount,
     0,
   );
 
-  function createBudgetReportData() {
+  /** The PDF contains exactly the budgets listed under these filters. */
+  function createBudgetReportData(): PrintableBudgetReportData {
     const generatedAt = new Date();
-    const dateStamp = [
-      generatedAt.getFullYear(),
-      String(generatedAt.getMonth() + 1).padStart(2, '0'),
-      String(generatedAt.getDate()).padStart(2, '0'),
-    ].join('-');
-    const timeStamp = [
-      String(generatedAt.getHours()).padStart(2, '0'),
-      String(generatedAt.getMinutes()).padStart(2, '0'),
-      String(generatedAt.getSeconds()).padStart(2, '0'),
-    ].join('-');
     return {
-      payments: [...payments].sort((a, b) => a.date.localeCompare(b.date)),
-      fileName: `budget-transactions_${dateStamp}_${timeStamp}`,
+      payments: [...filteredPayments].sort(bySerialNo),
+      filterSummary: describeReportFilters(fromDate, toDate, [
+        ['Payee', paidBy || 'All'],
+        ['Method', paymentMethod],
+      ]),
+      fileName: `budget-transactions_${fileTimestamp(generatedAt)}`,
       generatedAt,
     };
   }
@@ -94,25 +103,48 @@ export default function BudgetManagementPanel({
             <p>Date, payer, payment method, and amount for each budget.</p>
           </div>
           <div className="transaction-filters">
-            <label className="filter-control" htmlFor="budget-month-filter">
-              Month
+            <label className="filter-control" htmlFor="budget-from-filter">
+              From
               <input
-                aria-label="Filter budgets by month"
-                id="budget-month-filter"
-                type="month"
-                value={month}
-                onChange={(event) => setMonth(event.currentTarget.value)}
+                aria-label="Filter budgets from date"
+                id="budget-from-filter"
+                type="date"
+                value={fromDate}
+                onChange={(event) => setFromDate(event.currentTarget.value)}
               />
             </label>
+            <label className="filter-control" htmlFor="budget-to-filter">
+              To
+              <input
+                aria-label="Filter budgets to date"
+                id="budget-to-filter"
+                type="date"
+                value={toDate}
+                onChange={(event) => setToDate(event.currentTarget.value)}
+              />
+            </label>
+            {(fromDate || toDate) && (
+              <button
+                aria-label="Clear budget date filter"
+                className="button button-secondary clear-filter"
+                onClick={() => {
+                  setFromDate('');
+                  setToDate('');
+                }}
+                type="button"
+              >
+                Clear dates
+              </button>
+            )}
             <label className="filter-control" htmlFor="budget-payer-filter">
-              Paid by
+              Payee
               <select
                 aria-label="Filter budgets by payer"
                 id="budget-payer-filter"
                 value={paidBy}
                 onChange={(event) => setPaidBy(event.currentTarget.value)}
               >
-                <option value="">All payers</option>
+                <option value="">All payees</option>
                 {payers.map((name) => (
                   <option key={name}>{name}</option>
                 ))}
@@ -142,16 +174,18 @@ export default function BudgetManagementPanel({
             </button>
             <button
               className="button button-secondary"
-              onClick={() => {
-                const data = createBudgetReportData();
-                setPreviewData(data);
-              }}
+              onClick={() => setPreviewData(createBudgetReportData())}
               type="button"
             >
               Preview PDF
             </button>
           </div>
         </div>
+        {fromDate && toDate && fromDate > toDate && (
+          <p className="form-error transaction-filter-error" role="alert">
+            The From date must be on or before the To date.
+          </p>
+        )}
         <BudgetPaymentsTable
           payments={filteredPayments}
           onEdit={onEditPayment}

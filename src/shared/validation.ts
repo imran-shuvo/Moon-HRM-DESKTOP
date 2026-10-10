@@ -75,6 +75,11 @@ export function listName(value: unknown, label: string): string {
   return text(value, label, { max: 40, required: true });
 }
 
+/** Payee names may be longer than category/department names. */
+export function payeeName(value: unknown, label: string): string {
+  return text(value, label, { max: 100, required: true });
+}
+
 export function recordId(value: unknown): string {
   if (typeof value !== 'string' || !value || value.length > 64) {
     fail('The record id is invalid.');

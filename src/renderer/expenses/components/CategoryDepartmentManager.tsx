@@ -1,25 +1,60 @@
 import { FormEvent, useState } from 'react';
 import { errorMessage } from '../../data/FinanceApiContext';
-import { Expense } from '../model';
+import { BudgetTransaction, Expense } from '../model';
 
-type ListKind = 'category' | 'department';
+export type ListKind = 'category' | 'department' | 'payee' | 'budgetPayer';
+
+export type ListHandlers = {
+  onAdd: (value: string) => Promise<void>;
+  onRename: (oldValue: string, newValue: string) => Promise<void>;
+  onDelete: (value: string) => Promise<void>;
+};
+
+const LIST_TEXT: Record<
+  ListKind,
+  { label: string; title: string; description: string; maxLength: number }
+> = {
+  category: {
+    label: 'Category',
+    title: 'Categories',
+    description: 'Add, rename, or remove options used by transactions.',
+    maxLength: 40,
+  },
+  department: {
+    label: 'Department',
+    title: 'Departments',
+    description: 'Add, rename, or remove options used by transactions.',
+    maxLength: 40,
+  },
+  payee: {
+    label: 'Paid to',
+    title: 'Paid to (expenses)',
+    description: 'Vendors and recipients offered when adding an expense.',
+    maxLength: 100,
+  },
+  budgetPayer: {
+    label: 'Payee',
+    title: 'Payees (budgets)',
+    description: 'People or companies a budget payment is received from.',
+    maxLength: 100,
+  },
+};
 
 function ListEditor({
   kind,
   items,
-  expenses,
+  usageCount,
   onAdd,
   onRename,
   onDelete,
-}: {
+}: ListHandlers & {
   kind: ListKind;
   items: string[];
-  expenses: Expense[];
-  onAdd: (value: string) => Promise<void>;
-  onRename: (oldValue: string, newValue: string) => Promise<void>;
-  onDelete: (value: string) => Promise<void>;
+  usageCount: (value: string) => number;
 }) {
-  const label = kind === 'category' ? 'Category' : 'Department';
+  const { label, title, description, maxLength } = LIST_TEXT[kind];
+  // The database keeps at least one category and department; payee lists may be emptied.
+  const keepOne = kind === 'category' || kind === 'department';
   const [newValue, setNewValue] = useState('');
   const [editing, setEditing] = useState('');
   const [editValue, setEditValue] = useState('');
@@ -73,16 +108,8 @@ function ListEditor({
     );
   }
 
-  function usageCount(value: string) {
-    return expenses.filter((expense) =>
-      kind === 'category'
-        ? expense.category === value
-        : expense.department === value,
-    ).length;
-  }
-
   function deleteItem(value: string) {
-    if (items.length <= 1) {
+    if (keepOne && items.length <= 1) {
       setError(`Keep at least one ${label.toLowerCase()} available.`);
       return;
     }
@@ -100,8 +127,8 @@ function ListEditor({
     <section className="panel list-manager">
       <div className="panel-heading">
         <div>
-          <h2>{label}s</h2>
-          <p>Add, rename, or remove options used by transactions.</p>
+          <h2>{title}</h2>
+          <p>{description}</p>
         </div>
       </div>
       <form className="manager-add-form" onSubmit={submitNew}>
@@ -110,7 +137,7 @@ function ListEditor({
         </label>
         <input
           id={`${kind}-new`}
-          maxLength={40}
+          maxLength={maxLength}
           onChange={(event) => setNewValue(event.currentTarget.value)}
           placeholder={`Add ${label.toLowerCase()}`}
           value={newValue}
@@ -134,7 +161,7 @@ function ListEditor({
                 </label>
                 <input
                   id={`${kind}-edit`}
-                  maxLength={40}
+                  maxLength={maxLength}
                   onChange={(event) => setEditValue(event.currentTarget.value)}
                   value={editValue}
                 />
@@ -187,47 +214,39 @@ function ListEditor({
 }
 
 export default function CategoryDepartmentManager({
-  categories,
-  departments,
+  lists,
   expenses,
-  onAddCategory,
-  onRenameCategory,
-  onDeleteCategory,
-  onAddDepartment,
-  onRenameDepartment,
-  onDeleteDepartment,
+  payments,
+  handlers,
 }: {
-  categories: string[];
-  departments: string[];
+  lists: Record<ListKind, string[]>;
   expenses: Expense[];
-  onAddCategory: (value: string) => Promise<void>;
-  onRenameCategory: (oldValue: string, newValue: string) => Promise<void>;
-  onDeleteCategory: (value: string) => Promise<void>;
-  onAddDepartment: (value: string) => Promise<void>;
-  onRenameDepartment: (oldValue: string, newValue: string) => Promise<void>;
-  onDeleteDepartment: (value: string) => Promise<void>;
+  payments: BudgetTransaction[];
+  handlers: Record<ListKind, ListHandlers>;
 }) {
+  const usage: Record<ListKind, (value: string) => number> = {
+    category: (value) => expenses.filter((e) => e.category === value).length,
+    department: (value) =>
+      expenses.filter((e) => e.department === value).length,
+    payee: (value) => expenses.filter((e) => e.payee === value).length,
+    budgetPayer: (value) =>
+      payments.filter((payment) => payment.paidBy === value).length,
+  };
+  const kinds: ListKind[] = ['category', 'department', 'payee', 'budgetPayer'];
+
   return (
-    <section
-      className="management-grid"
-      aria-label="Manage categories and departments"
-    >
-      <ListEditor
-        kind="category"
-        items={categories}
-        expenses={expenses}
-        onAdd={onAddCategory}
-        onRename={onRenameCategory}
-        onDelete={onDeleteCategory}
-      />
-      <ListEditor
-        kind="department"
-        items={departments}
-        expenses={expenses}
-        onAdd={onAddDepartment}
-        onRename={onRenameDepartment}
-        onDelete={onDeleteDepartment}
-      />
+    <section className="management-grid" aria-label="Manage lists">
+      {kinds.map((kind) => (
+        <ListEditor
+          key={kind}
+          kind={kind}
+          items={lists[kind]}
+          usageCount={usage[kind]}
+          onAdd={handlers[kind].onAdd}
+          onRename={handlers[kind].onRename}
+          onDelete={handlers[kind].onDelete}
+        />
+      ))}
     </section>
   );
 }

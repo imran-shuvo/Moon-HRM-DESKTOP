@@ -10,8 +10,12 @@ import { BackupCounts, BackupKind } from '../../shared/types';
  *   format: 'moon-finance-backup', formatVersion: 1,
  *   schemaVersion, appVersion, kind, createdAt, counts,
  *   checksum: sha256(JSON.stringify(data)),
- *   data: { categories, departments, expenses, attachments, budgetReceipts }
+ *   data: { categories, departments, expenses, attachments, budgetReceipts,
+ *           payees?, budgetPayers? }
  * }
+ *
+ * `payees` and `budgetPayers` were added later; backups without them are
+ * still valid and the lists are rebuilt from the transactions on restore.
  *
  * It is independent of pg_dump/PostgreSQL versions and contains receipts,
  * so one file is enough to rebuild the company's data on any new server.
@@ -72,6 +76,9 @@ export type BackupData = {
   expenses: BackupExpense[];
   attachments: BackupAttachment[];
   budgetReceipts: BackupReceipt[];
+  // Last, so older backups (without them) keep the same checksum.
+  payees?: BackupListItem[];
+  budgetPayers?: BackupListItem[];
 };
 
 export type BackupDocument = {
@@ -217,6 +224,15 @@ function validateData(value: unknown): BackupData {
         isTimestamp(r.createdAt) &&
         isTimestamp(r.updatedAt),
     ),
+    // Left undefined when absent so the checksum of older backups matches.
+    payees:
+      raw.payees === undefined
+        ? undefined
+        : checkRecords(raw.payees, 'Payees', isListItem),
+    budgetPayers:
+      raw.budgetPayers === undefined
+        ? undefined
+        : checkRecords(raw.budgetPayers, 'Budget payees', isListItem),
   };
 
   // Referential integrity, so a restore never fails half way on a foreign key.

@@ -15,6 +15,7 @@ import IPC from '../shared/ipcChannels';
 import { IpcResult } from '../shared/types';
 import {
   listName,
+  payeeName,
   recordId,
   validateBudgetTransactionInput,
   validateConnectionSettings,
@@ -153,29 +154,53 @@ export default function registerIpcHandlers({
 
   (
     [
-      ['categories', IPC.categoryAdd, IPC.categoryRename, IPC.categoryDelete],
+      [
+        'categories',
+        'Category',
+        listName,
+        IPC.categoryAdd,
+        IPC.categoryRename,
+        IPC.categoryDelete,
+      ],
       [
         'departments',
+        'Department',
+        listName,
         IPC.departmentAdd,
         IPC.departmentRename,
         IPC.departmentDelete,
       ],
+      [
+        'payees',
+        'Paid to',
+        payeeName,
+        IPC.payeeAdd,
+        IPC.payeeRename,
+        IPC.payeeDelete,
+      ],
+      [
+        'budget_payers',
+        'Payee',
+        payeeName,
+        IPC.budgetPayerAdd,
+        IPC.budgetPayerRename,
+        IPC.budgetPayerDelete,
+      ],
     ] as const
-  ).forEach(([table, add, rename, remove]) => {
-    const label = table === 'categories' ? 'Category' : 'Department';
-    handle(add, (name: unknown) =>
-      repository.addListItem(db(), table, listName(name, label)),
+  ).forEach(([table, label, name, add, rename, remove]) => {
+    handle(add, (value: unknown) =>
+      repository.addListItem(db(), table, name(value, label)),
     );
     handle(rename, (previous: unknown, next: unknown) =>
       repository.renameListItem(
         db(),
         table,
-        listName(previous, label),
-        listName(next, label),
+        name(previous, label),
+        name(next, label),
       ),
     );
-    handle(remove, (name: unknown) =>
-      repository.deleteListItem(db(), table, listName(name, label)),
+    handle(remove, (value: unknown) =>
+      repository.deleteListItem(db(), table, name(value, label)),
     );
   });
 
@@ -262,17 +287,24 @@ export default function registerIpcHandlers({
     const result = await dialog.showSaveDialog(window, options);
     if (result.canceled || !result.filePath) return undefined;
     // The renderer has already mounted the printable report; print CSS hides the app.
+    // Footer date matches the report's dates, e.g. 10-Oct-2026.
+    const now = new Date();
+    const month = now.toLocaleString('en-US', { month: 'short' });
+    const reportDate = `${String(now.getDate()).padStart(2, '0')}-${month}-${now.getFullYear()}`;
     const pdf = await window.webContents.printToPDF({
-      landscape: true,
+      landscape: false,
       printBackground: true,
       pageSize: 'A4',
       margins: {
         marginType: 'custom',
-        top: 0.4,
-        bottom: 0.4,
-        left: 0.4,
-        right: 0.4,
+        top: 0.55,
+        bottom: 0.75,
+        left: 0.65,
+        right: 0.65,
       },
+      displayHeaderFooter: true,
+      headerTemplate: '<div></div>',
+      footerTemplate: `<div style="display:flex;justify-content:space-between;width:100%;padding:0 0.65in;color:#666;font:8.5px Helvetica,Arial,sans-serif;"><span>Report date: ${reportDate}</span><span>Page <span class="pageNumber"></span></span></div>`,
     });
     await fs.writeFile(result.filePath, pdf);
     return result.filePath;

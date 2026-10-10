@@ -1,18 +1,21 @@
 import { ChangeEvent, FormEvent, useState } from 'react';
 import { ExpenseInput } from '../../../shared/types';
 import { Expense, PAYMENT_METHODS, todayKey } from '../model';
+import ListSelectField from './ListSelectField';
 
 export default function ExpenseDialog({
   onClose,
   onSubmit,
   categories,
   departments,
+  payees,
   expense,
 }: {
   onClose: () => void;
   onSubmit: (input: ExpenseInput, files: File[]) => Promise<void>;
   categories: string[];
   departments: string[];
+  payees: string[];
   expense: Expense | undefined;
 }) {
   const [error, setError] = useState('');
@@ -128,17 +131,17 @@ export default function ExpenseDialog({
                 placeholder="Invoice number"
               />
             </label>
-            <label className="form-field field-wide" htmlFor="expense-payee">
-              Paid to
-              <input
-                id="expense-payee"
-                defaultValue={expense?.payee ?? ''}
-                maxLength={100}
-                name="payee"
-                placeholder="Vendor or recipient name"
-                required
-              />
-            </label>
+            <ListSelectField
+              className="form-field field-wide"
+              defaultValue={expense?.payee ?? ''}
+              id="expense-payee"
+              label="Paid to"
+              maxLength={100}
+              name="payee"
+              newOptionLabel="New paid to name"
+              options={payees}
+              placeholder="Vendor or recipient name"
+            />
             <label
               className="form-field field-wide"
               htmlFor="expense-particulars"

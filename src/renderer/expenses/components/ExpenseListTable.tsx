@@ -1,4 +1,4 @@
-import { Expense, formatCurrency, getExpenseTotal } from '../model';
+import { Expense, bySerialNo, formatCurrency, getExpenseTotal } from '../model';
 
 function formatDate(value: string) {
   return new Date(`${value}T12:00:00`).toLocaleDateString(undefined, {
@@ -34,9 +34,9 @@ export default function ExpenseListTable({
           </tr>
         </thead>
         <tbody>
-          {expenses.map((expense, index) => (
+          {[...expenses].sort(bySerialNo).map((expense) => (
             <tr key={expense.id}>
-              <td>{index + 1}</td>
+              <td>{expense.serialNo}</td>
               <td className="date-cell">{formatDate(expense.date)}</td>
               <td>
                 <button

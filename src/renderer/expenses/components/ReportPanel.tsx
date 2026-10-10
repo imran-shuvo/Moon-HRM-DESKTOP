@@ -7,6 +7,7 @@ import {
   createPrintableReportData,
 } from './ReportExportPanel';
 import ExportPreviewDialog from './ExportPreviewDialog';
+import moonLogo from '../../../../assets/moon-logo.png';
 
 type Period = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -103,9 +104,11 @@ export default function ReportPanel({
       <div className="report-document">
         <header className="report-brand-header">
           <div className="report-brand">
-            <div className="report-logo" aria-label="Moon company logo">
-              m<span>.</span>
-            </div>
+            <img
+              alt="Moon Trading Contracting and Cleaning logo"
+              className="report-logo"
+              src={moonLogo}
+            />
             <div>
               <p className="report-company-name">
                 Moon Trading Contracting &amp; Cleaning

@@ -30,6 +30,8 @@ export type Expense = {
   type?: string;
   attachments?: ExpenseAttachment[];
   createdAt?: number;
+  /** Fixed position in entry order (1 = first ever entered). Set by the UI. */
+  serialNo?: number;
 };
 
 export type BudgetTransaction = {
@@ -40,6 +42,8 @@ export type BudgetTransaction = {
   paymentMethod?: 'Cash' | 'Card';
   note: string;
   createdAt?: number;
+  /** Fixed position in entry order (1 = first ever entered). Set by the UI. */
+  serialNo?: number;
 };
 
 /** Fields the user edits for an expense. Totals are derived by the database. */
@@ -83,6 +87,16 @@ export type FinanceSnapshot = {
   budgetTransactions: BudgetTransaction[];
   categories: string[];
   departments: string[];
+  /** Options for an expense's "Paid to". */
+  payees: string[];
+  /** Options for who a budget payment was received from. */
+  budgetPayers: string[];
+};
+
+export type ListApi = {
+  add: (name: string) => Promise<void>;
+  rename: (previous: string, next: string) => Promise<void>;
+  remove: (name: string) => Promise<void>;
 };
 
 /** Data saved in localStorage/IndexedDB by the pre-database version of the app. */
@@ -187,16 +201,10 @@ export type FinanceApi = {
     ) => Promise<BudgetTransaction>;
     remove: (id: string) => Promise<void>;
   };
-  categories: {
-    add: (name: string) => Promise<void>;
-    rename: (previous: string, next: string) => Promise<void>;
-    remove: (name: string) => Promise<void>;
-  };
-  departments: {
-    add: (name: string) => Promise<void>;
-    rename: (previous: string, next: string) => Promise<void>;
-    remove: (name: string) => Promise<void>;
-  };
+  categories: ListApi;
+  departments: ListApi;
+  payees: ListApi;
+  budgetPayers: ListApi;
   backup: {
     settings: () => Promise<BackupSettings>;
     updateSettings: (
