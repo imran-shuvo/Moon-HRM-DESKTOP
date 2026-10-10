@@ -109,9 +109,14 @@ export function calculateBudgetForPeriod(
   const expensesInPeriod = expenses
     .filter((expense) => expense.date >= start && expense.date <= end)
     .reduce((sum, expense) => sum + getExpenseTotal(expense), 0);
-  const totalBudget = previousBudget - previousExpenses + receivedInPeriod;
+  const broughtForward = previousBudget - previousExpenses;
+  const totalBudget = broughtForward + receivedInPeriod;
 
   return {
+    /** Remaining budget carried in from before `start`. */
+    broughtForward,
+    receivedInPeriod,
+    expensesInPeriod,
     totalBudget,
     remainingBudget: totalBudget - expensesInPeriod,
   };

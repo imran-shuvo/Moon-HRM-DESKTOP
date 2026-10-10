@@ -24,6 +24,8 @@ const IPC = {
   budgetPayerAdd: 'budget-payer:add',
   budgetPayerRename: 'budget-payer:rename',
   budgetPayerDelete: 'budget-payer:delete',
+  monthReopen: 'month:reopen',
+  monthClose: 'month:close',
   backupSettings: 'backup:settings',
   backupUpdateSettings: 'backup:update-settings',
   backupChooseDirectory: 'backup:choose-directory',

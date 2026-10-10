@@ -19,10 +19,10 @@ import {
   getMonthDateRange,
   getMonthlyExpenseSummaries,
   inDateRange,
-  monthToDate,
   plural,
   withSerialNumbers,
 } from './expenses/model';
+import { isMonthClosed, monthKey } from '../shared/months';
 import { FinanceApiProvider, errorMessage } from './data/FinanceApiContext';
 import {
   hasLegacyData,
@@ -51,6 +51,7 @@ import ReportExportPanel, {
   PrintableReport,
   PrintableReportData,
 } from './expenses/components/ReportExportPanel';
+import MonthClosingPanel from './expenses/components/MonthClosingPanel';
 import BackupPanel from './expenses/components/BackupPanel';
 import DatabaseConnectionForm from './expenses/components/DatabaseConnectionForm';
 import moonLogo from '../../assets/moon-logo.png';
@@ -62,6 +63,7 @@ const EMPTY_SNAPSHOT: FinanceSnapshot = {
   departments: [],
   payees: [],
   budgetPayers: [],
+  reopenedMonths: [],
 };
 
 /** Reload from the database when the window regains focus, at most this often. */
@@ -187,7 +189,8 @@ const TITLES: Record<Section, { title: string; subtitle: string }> = {
   },
   Settings: {
     title: 'Settings',
-    subtitle: 'Export reports and manage payees, categories and departments.',
+    subtitle:
+      'Export reports, manage lists, and reopen closed months for corrections.',
   },
   Backup: {
     title: 'Backup & restore',
@@ -207,7 +210,9 @@ export default function App({ api }: { api: FinanceApi }) {
     kind: 'ok' | 'error';
     text: string;
   }>();
-  const { categories, departments, payees, budgetPayers } = data;
+  const { categories, departments, payees, budgetPayers, reopenedMonths } =
+    data;
+  const [viewMonth, setViewMonth] = useState(monthKey());
   const expenses = useMemo(
     () => withSerialNumbers(data.expenses),
     [data.expenses],
@@ -402,18 +407,63 @@ export default function App({ api }: { api: FinanceApi }) {
     };
   }, [api, printReport, printBudgetReport, printExpenseReport]);
 
-  const monthExpenses = useMemo(() => monthToDate(expenses), [expenses]);
+  // The sidebar always shows the current month's budget.
   const { start: currentMonthStart, end: currentMonthEnd } =
     getMonthDateRange();
-  const { totalBudget, remainingBudget: remaining } = calculateBudgetForPeriod(
+  const { totalBudget: currentTotalBudget } = calculateBudgetForPeriod(
     expenses,
     budgetTransactions,
     currentMonthStart,
     currentMonthEnd,
   );
+  // The Overview shows the month chosen in the top bar.
+  const monthExpenses = useMemo(
+    () => expenses.filter((expense) => expense.date.startsWith(viewMonth)),
+    [expenses, viewMonth],
+  );
+  const { start: viewMonthStart, end: viewMonthEnd } = getMonthDateRange(
+    `${viewMonth}-01`,
+  );
+  const {
+    totalBudget,
+    broughtForward,
+    receivedInPeriod,
+    remainingBudget: remaining,
+  } = calculateBudgetForPeriod(
+    expenses,
+    budgetTransactions,
+    viewMonthStart,
+    viewMonthEnd,
+  );
   const currentMonthExpenses = monthExpenses.reduce(
     (total, expense) => total + getExpenseTotal(expense),
     0,
+  );
+  const isDateClosed = useCallback(
+    (date: string) => isMonthClosed(date.slice(0, 7), reopenedMonths),
+    [reopenedMonths],
+  );
+
+  const reopenMonth = useCallback(
+    async (month: string) => {
+      await api.months.reopen(month);
+      setData((current) => ({
+        ...current,
+        reopenedMonths: [...new Set([...current.reopenedMonths, month])].sort(),
+      }));
+    },
+    [api],
+  );
+
+  const closeMonth = useCallback(
+    async (month: string) => {
+      await api.months.close(month);
+      setData((current) => ({
+        ...current,
+        reopenedMonths: current.reopenedMonths.filter((item) => item !== month),
+      }));
+    },
+    [api],
   );
   const monthlyExpenseSummaries = getMonthlyExpenseSummaries(expenses);
   const transactionEntries = useMemo(() => {
@@ -691,13 +741,16 @@ export default function App({ api }: { api: FinanceApi }) {
     remaining >= 0
       ? `${formatCurrency(remaining)} remains after this month's expenses`
       : `${formatCurrency(Math.abs(remaining))} more spent than this month's available budget`;
+  const [viewYear, viewMonthNumber] = viewMonth.split('-').map(Number);
+  const shiftViewMonth = (offset: number) =>
+    setViewMonth(monthKey(new Date(viewYear, viewMonthNumber - 1 + offset, 1)));
   const pageTitle = section === 'Overview' ? greeting() : page.title;
 
   return (
     <FinanceApiProvider value={api}>
       <div className="app-shell">
         <Sidebar
-          budget={totalBudget}
+          budget={currentTotalBudget}
           onSelect={setSection}
           section={section}
           transactionCount={expenses.length}
@@ -707,12 +760,41 @@ export default function App({ api }: { api: FinanceApi }) {
             <div className="breadcrumb">
               Moon Trading Contracting &amp; Cleaning <span>/</span> Finance
             </div>
-            <div className="topbar-right">
-              <span className="period-label">Reporting period</span>
-              <span className="period-pill">
-                This month <span aria-hidden="true">⌄</span>
-              </span>
-            </div>
+            {section === 'Overview' && (
+              <div className="topbar-right">
+                <span className="period-label">Month</span>
+                <div className="period-picker">
+                  <button
+                    aria-label="Previous month"
+                    className="period-step"
+                    onClick={() => shiftViewMonth(-1)}
+                    type="button"
+                  >
+                    ‹
+                  </button>
+                  <input
+                    aria-label="Overview month"
+                    className="period-pill"
+                    id="overview-month"
+                    max={monthKey()}
+                    onChange={(event) =>
+                      setViewMonth(event.currentTarget.value || monthKey())
+                    }
+                    type="month"
+                    value={viewMonth}
+                  />
+                  <button
+                    aria-label="Next month"
+                    className="period-step"
+                    disabled={viewMonth >= monthKey()}
+                    onClick={() => shiftViewMonth(1)}
+                    type="button"
+                  >
+                    ›
+                  </button>
+                </div>
+              </div>
+            )}
           </header>
 
           <div className="page-content">
@@ -783,6 +865,11 @@ export default function App({ api }: { api: FinanceApi }) {
 
             {section === 'Overview' && (
               <OverviewPanel
+                month={viewMonth}
+                reopenedMonths={reopenedMonths}
+                broughtForward={broughtForward}
+                received={receivedInPeriod}
+                onViewMonth={setViewMonth}
                 monthExpenses={monthExpenses}
                 monthlyExpenseSummaries={monthlyExpenseSummaries}
                 budgets={categoryBudgets}
@@ -824,6 +911,7 @@ export default function App({ api }: { api: FinanceApi }) {
               <BudgetManagementPanel
                 payments={budgetTransactions}
                 payers={budgetPayers}
+                isDateClosed={isDateClosed}
                 onAddPayment={openBudgetPaymentDialog}
                 onEditPayment={openEditBudgetPayment}
                 onDeletePayment={requestDeleteBudgetPayment}
@@ -856,6 +944,11 @@ export default function App({ api }: { api: FinanceApi }) {
                   expenses={expenses}
                   payments={budgetTransactions}
                   handlers={listHandlers}
+                />
+                <MonthClosingPanel
+                  reopenedMonths={reopenedMonths}
+                  onReopen={reopenMonth}
+                  onClose={closeMonth}
                 />
               </>
             )}
@@ -908,6 +1001,7 @@ export default function App({ api }: { api: FinanceApi }) {
         {selectedExpense && (
           <ExpenseDetailsDialog
             expense={selectedExpense}
+            closed={isDateClosed(selectedExpense.date)}
             onClose={closeExpenseDetails}
             onEdit={editExpense}
             onDelete={deleteExpense}

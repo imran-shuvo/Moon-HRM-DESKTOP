@@ -16,6 +16,7 @@ import ExportPreviewDialog from './ExportPreviewDialog';
 export default function BudgetManagementPanel({
   payments,
   payers: savedPayers,
+  isDateClosed,
   onAddPayment,
   onEditPayment,
   onDeletePayment,
@@ -24,6 +25,7 @@ export default function BudgetManagementPanel({
   payments: BudgetTransaction[];
   /** Payees saved in Settings. */
   payers: string[];
+  isDateClosed: (date: string) => boolean;
   onAddPayment: () => void;
   onEditPayment: (payment: BudgetTransaction) => void;
   onDeletePayment: (payment: BudgetTransaction) => void;
@@ -188,6 +190,7 @@ export default function BudgetManagementPanel({
         )}
         <BudgetPaymentsTable
           payments={filteredPayments}
+          isDateClosed={isDateClosed}
           onEdit={onEditPayment}
           onDelete={onDeletePayment}
         />

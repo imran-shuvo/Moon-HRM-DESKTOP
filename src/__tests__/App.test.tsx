@@ -30,11 +30,16 @@ function matchesCurrency(amount: number) {
 
 /** Renders the app against an in-memory database seeded with sample data. */
 async function renderApp(
-  seed: { expenses?: Expense[]; budgetTransactions?: BudgetTransaction[] } = {},
+  seed: {
+    expenses?: Expense[];
+    budgetTransactions?: BudgetTransaction[];
+    reopenedMonths?: string[];
+  } = {},
 ) {
   const memory = createMemoryApi({
     expenses: (seed.expenses ?? createSampleExpenses()).map(normalizeExpense),
     budgetTransactions: seed.budgetTransactions ?? [],
+    reopenedMonths: seed.reopenedMonths ?? [],
   });
   render(<App api={memory.api} />);
   await screen.findByRole('navigation', { name: 'Main navigation' });
@@ -59,6 +64,32 @@ function chooseName(fieldLabel: string, value: string) {
   }
 }
 
+/**
+ * Months before the current one are closed, so tests run on a fixed day late
+ * in the month: sample data (dated up to 20 days back) stays in an open month.
+ */
+function freezeToday() {
+  jest.useFakeTimers({
+    now: new Date(2026, 9, 28, 12),
+    doNotFake: [
+      'hrtime',
+      'nextTick',
+      'performance',
+      'queueMicrotask',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+      'requestIdleCallback',
+      'cancelIdleCallback',
+      'setImmediate',
+      'clearImmediate',
+      'setInterval',
+      'clearInterval',
+      'setTimeout',
+      'clearTimeout',
+    ],
+  });
+}
+
 async function waitForDialogToClose() {
   await waitFor(() =>
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
@@ -68,6 +99,11 @@ async function waitForDialogToClose() {
 describe('App', () => {
   beforeEach(() => {
     localStorage.clear();
+    freezeToday();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it('should render', async () => {
@@ -187,7 +223,13 @@ describe('App', () => {
 
     expect(
       calculateBudgetForPeriod(expenses, payments, '2025-03-01', '2025-03-31'),
-    ).toEqual({ totalBudget: 900, remainingBudget: 650 });
+    ).toEqual({
+      broughtForward: 600,
+      receivedInPeriod: 300,
+      expensesInPeriod: 250,
+      totalBudget: 900,
+      remainingBudget: 650,
+    });
     expect(getMonthlyExpenseSummaries(expenses)).toEqual([
       { month: '2025-03', total: 250, count: 1 },
       { month: '2025-02', total: 400, count: 1 },
@@ -341,7 +383,8 @@ describe('App', () => {
   });
 
   it('filters out expenses outside the date range', async () => {
-    const memory = await renderApp();
+    // January 2020 is closed; reopen it to record an expense there.
+    const memory = await renderApp({ reopenedMonths: ['2020-01'] });
     fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
     fireEvent.click(screen.getByRole('button', { name: /add expense/i }));
     chooseName('Paid to', 'January Vendor');
@@ -516,7 +559,7 @@ describe('App', () => {
   });
 
   it('filters budget payments by payee, date range, and payment method', async () => {
-    await renderApp();
+    await renderApp({ reopenedMonths: ['2026-01', '2026-02'] });
     fireEvent.click(screen.getByRole('button', { name: /budgets/i }));
 
     async function addPayment(payer: string, date: string, method: string) {
@@ -909,11 +952,161 @@ describe('App', () => {
       /^expense-transactions_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/,
     );
   });
+
+  it('shows a past month as closed and carries its remaining budget forward', async () => {
+    await renderApp({
+      expenses: [
+        {
+          id: 'september-expense',
+          date: '2026-09-15',
+          payee: 'September Vendor',
+          description: 'Materials',
+          category: 'Materials',
+          department: 'Operations',
+          paymentMethod: 'Cash',
+          amount: 400,
+        },
+      ],
+      budgetTransactions: [
+        {
+          id: 'september-budget',
+          date: '2026-09-01',
+          amount: 1000,
+          paidBy: 'Owner',
+          paymentMethod: 'Cash',
+          note: '',
+        },
+      ],
+    });
+    // October: September's 600 remaining is brought forward.
+    expect(
+      screen.getByText(/600\.00 brought forward from September 2026/),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+    expect(screen.getByLabelText('Overview month')).toHaveValue('2026-09');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'September 2026 is closed.',
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /600\.00 was carried into October 2026/,
+    );
+    expect(screen.getByRole('button', { name: 'Next month' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to this month' }));
+    expect(screen.getByLabelText('Overview month')).toHaveValue('2026-10');
+    expect(screen.getByRole('button', { name: 'Next month' })).toBeDisabled();
+  });
+
+  it('makes closed-month transactions read-only until the month is reopened', async () => {
+    const memory = await renderApp({
+      expenses: [
+        {
+          id: 'september-expense',
+          date: '2026-09-15',
+          payee: 'September Vendor',
+          description: 'Materials',
+          category: 'Materials',
+          department: 'Operations',
+          paymentMethod: 'Cash',
+          amount: 400,
+        },
+      ],
+      budgetTransactions: [
+        {
+          id: 'september-budget',
+          date: '2026-09-01',
+          amount: 1000,
+          paidBy: 'Owner',
+          paymentMethod: 'Cash',
+          note: '',
+        },
+      ],
+    });
+
+    // The database refuses changes, not just the screen.
+    await expect(
+      memory.api.expenses.remove('september-expense'),
+    ).rejects.toThrow(/September 2026 is closed/);
+    await expect(memory.api.budgets.remove('september-budget')).rejects.toThrow(
+      /September 2026 is closed/,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'View details for September Vendor' }),
+    );
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'September 2026 is closed',
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Edit transaction' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /budgets/i }));
+    expect(
+      within(screen.getByRole('table')).getByText('🔒 Closed'),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+    fireEvent.change(screen.getByLabelText('Month to reopen'), {
+      target: { value: '2026-09' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen month' }));
+    expect(
+      await screen.findByRole('button', { name: 'Close September 2026 again' }),
+    ).toBeInTheDocument();
+    expect(memory.snapshot().reopenedMonths).toEqual(['2026-09']);
+
+    fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'View details for September Vendor' }),
+    );
+    expect(
+      screen.getByRole('button', { name: 'Edit transaction' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Close September 2026 again' }),
+    );
+    expect(
+      await screen.findByText('All past months are closed.'),
+    ).toBeInTheDocument();
+    expect(memory.snapshot().reopenedMonths).toEqual([]);
+  });
+
+  it('refuses to save a new expense dated in a closed month', async () => {
+    await renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add expense/i }));
+    chooseName('Paid to', 'Late Vendor');
+    fireEvent.change(screen.getByLabelText('Particulars / details'), {
+      target: { value: 'Late invoice' },
+    });
+    fireEvent.change(screen.getByLabelText('Amount excluding VAT'), {
+      target: { value: '10' },
+    });
+    fireEvent.change(screen.getByLabelText('Invoice date'), {
+      target: { value: '2026-09-30' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save expense' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'September 2026 is closed',
+    );
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
 });
 
 describe('App with the database', () => {
   beforeEach(() => {
     localStorage.clear();
+    freezeToday();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it('keeps the department when an expense is edited', async () => {

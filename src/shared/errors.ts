@@ -3,6 +3,7 @@ export type AppErrorCode =
   | 'NOT_FOUND'
   | 'CONFLICT'
   | 'IN_USE'
+  | 'MONTH_CLOSED'
   | 'NOT_CONNECTED'
   | 'CONNECTION_FAILED'
   | 'BACKUP_INVALID'

@@ -91,6 +91,8 @@ export type FinanceSnapshot = {
   payees: string[];
   /** Options for who a budget payment was received from. */
   budgetPayers: string[];
+  /** Past months ('YYYY-MM') reopened for corrections; others are closed. */
+  reopenedMonths: string[];
 };
 
 export type ListApi = {
@@ -205,6 +207,12 @@ export type FinanceApi = {
   departments: ListApi;
   payees: ListApi;
   budgetPayers: ListApi;
+  months: {
+    /** Makes a closed month editable again. */
+    reopen: (month: string) => Promise<void>;
+    /** Closes a reopened month again. */
+    close: (month: string) => Promise<void>;
+  };
   backup: {
     settings: () => Promise<BackupSettings>;
     updateSettings: (

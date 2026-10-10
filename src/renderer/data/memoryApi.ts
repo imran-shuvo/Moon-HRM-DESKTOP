@@ -13,11 +13,13 @@ import {
 } from '../../shared/types';
 import {
   listName,
+  pastMonth,
   payeeName,
   validateBudgetTransactionInput,
   validateExpenseInput,
   validateUploads,
 } from '../../shared/validation';
+import { assertMonthsOpen, monthKey } from '../../shared/months';
 import { DEFAULT_CATEGORIES, DEFAULT_DEPARTMENTS } from '../expenses/model';
 
 // Data is plain JSON, so this is a full deep copy (jsdom lacks structuredClone).
@@ -95,7 +97,10 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
       distinctNames(
         (seed.budgetTransactions ?? []).map((payment) => payment.paidBy),
       ),
+    reopenedMonths: [...(seed.reopenedMonths ?? [])],
   };
+  const assertOpen = (...dates: string[]) =>
+    assertMonthsOpen(dates, state.reopenedMonths);
   const files = new Map<string, AttachmentUpload>();
   const backups: BackupFileInfo[] = [];
   let backupSettings: BackupSettings = {
@@ -262,6 +267,7 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
       create: async (rawInput, rawFiles) => {
         const input = validateExpenseInput(rawInput);
         checkCategory(input);
+        assertOpen(input.date);
         input.payee = ensureListItem('payees', input.payee);
         const expense = toExpense(newId(), input);
         expense.attachments = storeFiles(validateUploads(rawFiles));
@@ -271,8 +277,9 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
       update: async (id, rawInput, rawFiles) => {
         const input = validateExpenseInput(rawInput);
         checkCategory(input);
-        input.payee = ensureListItem('payees', input.payee);
         const previous = findExpense(id);
+        assertOpen(previous.date, input.date);
+        input.payee = ensureListItem('payees', input.payee);
         const expense = toExpense(id, input, previous);
         expense.attachments = [
           ...(previous.attachments ?? []),
@@ -285,6 +292,7 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
       },
       remove: async (id) => {
         const expense = findExpense(id);
+        assertOpen(expense.date);
         expense.attachments?.forEach((attachment) =>
           files.delete(attachment.id),
         );
@@ -296,6 +304,7 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
     budgets: {
       create: async (rawInput) => {
         const input = validateBudgetTransactionInput(rawInput);
+        assertOpen(input.date);
         input.paidBy = ensureListItem('budgetPayers', input.paidBy);
         const payment = toPayment(newId(), input);
         state.budgetTransactions = [payment, ...state.budgetTransactions];
@@ -312,6 +321,7 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
           );
         }
         const input = validateBudgetTransactionInput(rawInput);
+        assertOpen(previous.date, input.date);
         input.paidBy = ensureListItem('budgetPayers', input.paidBy);
         const payment = toPayment(id, input, previous);
         state.budgetTransactions = state.budgetTransactions.map((item) =>
@@ -320,6 +330,8 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
         return { ...payment };
       },
       remove: async (id) => {
+        const payment = state.budgetTransactions.find((item) => item.id === id);
+        if (payment) assertOpen(payment.date);
         state.budgetTransactions = state.budgetTransactions.filter(
           (item) => item.id !== id,
         );
@@ -329,6 +341,20 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
     departments: listApi('departments'),
     payees: listApi('payees'),
     budgetPayers: listApi('budgetPayers'),
+    months: {
+      reopen: async (rawMonth) => {
+        const month = pastMonth(rawMonth, monthKey());
+        if (!state.reopenedMonths.includes(month)) {
+          state.reopenedMonths = [...state.reopenedMonths, month].sort();
+        }
+      },
+      close: async (rawMonth) => {
+        const month = pastMonth(rawMonth, monthKey());
+        state.reopenedMonths = state.reopenedMonths.filter(
+          (item) => item !== month,
+        );
+      },
+    },
     backup: {
       settings: async () => ({ ...backupSettings }),
       updateSettings: async (settings) => {

@@ -11,6 +11,7 @@ import {
   LegacyImportPayload,
   LegacyImportResult,
 } from '../../shared/types';
+import { assertMonthsOpen } from '../../shared/months';
 import { Database, Queryable } from './database';
 
 type ExpenseRow = {
@@ -249,6 +250,54 @@ async function ensureListItem(
   return name;
 }
 
+async function listReopenedMonths(client: Queryable): Promise<string[]> {
+  const { rows } = await client.query<{ month: string }>(
+    'SELECT month FROM reopened_months ORDER BY month',
+  );
+  return rows.map((row) => row.month);
+}
+
+/** Refuses changes to records dated in a closed month. */
+async function assertDatesOpen(client: Queryable, dates: string[]) {
+  assertMonthsOpen(dates, await listReopenedMonths(client));
+}
+
+/**
+ * Locks a record and returns its date, so a change can be checked against
+ * both the old and the new month.
+ */
+async function lockedRecordDate(
+  client: Queryable,
+  table: 'expenses' | 'budget_receipts',
+  id: string,
+): Promise<string> {
+  const column = table === 'expenses' ? 'expense_date' : 'received_date';
+  const { rows } = await client.query<{ date: string }>(
+    `SELECT ${column} AS date FROM ${table} WHERE id = $1 FOR UPDATE`,
+    [id],
+  );
+  if (!rows[0]) {
+    throw new AppError(
+      'NOT_FOUND',
+      table === 'expenses'
+        ? 'That expense no longer exists.'
+        : 'That budget payment no longer exists.',
+    );
+  }
+  return rows[0].date;
+}
+
+export async function reopenMonth(db: Database, month: string): Promise<void> {
+  await db.query(
+    'INSERT INTO reopened_months (month) VALUES ($1) ON CONFLICT DO NOTHING',
+    [month],
+  );
+}
+
+export async function closeMonth(db: Database, month: string): Promise<void> {
+  await db.query('DELETE FROM reopened_months WHERE month = $1', [month]);
+}
+
 export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
   // One consistent snapshot even if another user is writing concurrently.
   return db.transaction(
@@ -270,6 +319,7 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
       const departments = await listNames(client, 'departments');
       const payees = await listNames(client, 'payees');
       const budgetPayers = await listNames(client, 'budget_payers');
+      const reopenedMonths = await listReopenedMonths(client);
       const attachmentsByExpense = new Map<string, ExpenseAttachment[]>();
       attachments.rows.forEach((row) => {
         const list = attachmentsByExpense.get(row.expense_id) ?? [];
@@ -285,6 +335,7 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
         departments,
         payees,
         budgetPayers,
+        reopenedMonths,
       };
     },
     { isolation: 'REPEATABLE READ' },
@@ -297,6 +348,7 @@ export function createExpense(
   files: AttachmentUpload[],
 ): Promise<Expense> {
   return db.transaction(async (client) => {
+    await assertDatesOpen(client, [input.date]);
     const payee = await ensureListItem(client, 'payees', input.payee);
     const { rows } = await client.query<{ id: string }>(
       `INSERT INTO expenses
@@ -320,6 +372,8 @@ export async function updateExpense(
 ): Promise<Expense> {
   assertUuid(id);
   return db.transaction(async (client) => {
+    const previousDate = await lockedRecordDate(client, 'expenses', id);
+    await assertDatesOpen(client, [previousDate, input.date]);
     const payee = await ensureListItem(client, 'payees', input.payee);
     const { rowCount } = await client.query(
       `UPDATE expenses SET
@@ -338,14 +392,14 @@ export async function updateExpense(
   });
 }
 
-export async function deleteExpense(db: Database, id: string): Promise<void> {
+export function deleteExpense(db: Database, id: string): Promise<void> {
   assertUuid(id);
-  // Attachments are removed by ON DELETE CASCADE in the same statement.
-  const { rowCount } = await db.query('DELETE FROM expenses WHERE id = $1', [
-    id,
-  ]);
-  if (!rowCount)
-    throw new AppError('NOT_FOUND', 'That expense no longer exists.');
+  return db.transaction(async (client) => {
+    const date = await lockedRecordDate(client, 'expenses', id);
+    await assertDatesOpen(client, [date]);
+    // Attachments are removed by ON DELETE CASCADE in the same statement.
+    await client.query('DELETE FROM expenses WHERE id = $1', [id]);
+  });
 }
 
 export async function getAttachment(
@@ -374,6 +428,7 @@ export function createBudgetTransaction(
   input: BudgetTransactionInput,
 ): Promise<BudgetTransaction> {
   return db.transaction(async (client) => {
+    await assertDatesOpen(client, [input.date]);
     const paidBy = await ensureListItem(client, 'budget_payers', input.paidBy);
     const { rows } = await client.query<ReceiptRow>(
       `INSERT INTO budget_receipts
@@ -393,6 +448,8 @@ export async function updateBudgetTransaction(
 ): Promise<BudgetTransaction> {
   assertUuid(id);
   return db.transaction(async (client) => {
+    const previousDate = await lockedRecordDate(client, 'budget_receipts', id);
+    await assertDatesOpen(client, [previousDate, input.date]);
     const paidBy = await ensureListItem(client, 'budget_payers', input.paidBy);
     const { rows } = await client.query<ReceiptRow>(
       `UPDATE budget_receipts SET
@@ -409,18 +466,16 @@ export async function updateBudgetTransaction(
   });
 }
 
-export async function deleteBudgetTransaction(
+export function deleteBudgetTransaction(
   db: Database,
   id: string,
 ): Promise<void> {
   assertUuid(id);
-  const { rowCount } = await db.query(
-    'DELETE FROM budget_receipts WHERE id = $1',
-    [id],
-  );
-  if (!rowCount) {
-    throw new AppError('NOT_FOUND', 'That budget payment no longer exists.');
-  }
+  return db.transaction(async (client) => {
+    const date = await lockedRecordDate(client, 'budget_receipts', id);
+    await assertDatesOpen(client, [date]);
+    await client.query('DELETE FROM budget_receipts WHERE id = $1', [id]);
+  });
 }
 
 export async function addListItem(

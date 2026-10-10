@@ -132,6 +132,19 @@ export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
       WHERE lower(r.paid_by) = lower(p.name) AND r.paid_by <> p.name;
     `,
   },
+  {
+    version: 3,
+    name: 'month closing',
+    sql: `
+      -- Months end-dated before the current month are closed (read-only)
+      -- unless listed here. Reopening adds a row; closing again removes it.
+      CREATE TABLE reopened_months (
+        month        CHAR(7) PRIMARY KEY
+                     CHECK (month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+        reopened_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

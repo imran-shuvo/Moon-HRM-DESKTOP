@@ -45,6 +45,18 @@ button { cursor: pointer; }
 .period-label { color: #898a96; font-size: 10px; }
 .period-pill { display: inline-flex; min-width: 103px; align-items: center; justify-content: space-between; border: 1px solid #e7e7ec; border-radius: 6px; padding: 7px 9px; color: #444655; font-size: 10px; }
 .period-pill span { color: #9698a5; font-size: 14px; }
+.period-picker { display: inline-flex; align-items: center; gap: 4px; }
+.period-picker input.period-pill { min-width: 0; height: 30px; background: white; font: inherit; font-size: 10px; }
+.period-step { width: 26px; height: 30px; border: 1px solid #e7e7ec; border-radius: 6px; color: #444655; background: white; font-size: 14px; cursor: pointer; }
+.period-step:disabled { opacity: 0.4; cursor: default; }
+.month-status { justify-content: space-between; gap: 12px; }
+.month-badge { display: inline-flex; align-items: center; border-radius: 10px; padding: 2px 8px; font-size: 9px; font-weight: 600; white-space: nowrap; }
+.month-badge.open { color: #2f8a63; background: #e6f5ee; }
+.month-badge.closed { color: #7a6a4f; background: #f6efe2; }
+.monthly-expenses-table .selected-row td { background: #f6f5fd; }
+.closed-note { margin: 14px 0 0; border-radius: 6px; padding: 9px 11px; color: #7a6a4f; background: #f9f4ea; font-size: 10px; }
+.month-closing-panel { margin-top: 16px; }
+.month-closing-panel .manager-add-form input { flex: 1; }
 .page-content { max-width: 1450px; margin: 0 auto; padding: 34px 44px 22px; }
 .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
 .eyebrow { margin: 0 0 8px; color: #9a9ba8; font-size: 9px; font-weight: 700; letter-spacing: 1.1px; }

@@ -80,6 +80,15 @@ export function payeeName(value: unknown, label: string): string {
   return text(value, label, { max: 100, required: true });
 }
 
+/** A past calendar month, 'YYYY-MM'. */
+export function pastMonth(value: unknown, currentMonth: string): string {
+  if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
+    fail('Choose a month.');
+  }
+  if (value >= currentMonth) fail('Only past months can be reopened.');
+  return value;
+}
+
 export function recordId(value: unknown): string {
   if (typeof value !== 'string' || !value || value.length > 64) {
     fail('The record id is invalid.');

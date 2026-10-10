@@ -12,9 +12,11 @@ import path from 'path';
 import log from 'electron-log';
 import { AppError } from '../shared/errors';
 import IPC from '../shared/ipcChannels';
+import { monthKey } from '../shared/months';
 import { IpcResult } from '../shared/types';
 import {
   listName,
+  pastMonth,
   payeeName,
   recordId,
   validateBudgetTransactionInput,
@@ -203,6 +205,13 @@ export default function registerIpcHandlers({
       repository.deleteListItem(db(), table, name(value, label)),
     );
   });
+
+  handle(IPC.monthReopen, (month: unknown) =>
+    repository.reopenMonth(db(), pastMonth(month, monthKey())),
+  );
+  handle(IPC.monthClose, (month: unknown) =>
+    repository.closeMonth(db(), pastMonth(month, monthKey())),
+  );
 
   handle(IPC.backupSettings, () => backups.settings());
   handle(IPC.backupUpdateSettings, (settings: unknown) => {

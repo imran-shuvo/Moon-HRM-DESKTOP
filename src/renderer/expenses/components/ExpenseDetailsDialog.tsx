@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { formatMonthName } from '../../../shared/months';
 import {
   Expense,
   ExpenseAttachment,
@@ -74,11 +75,14 @@ function AttachmentLink({ attachment }: { attachment: ExpenseAttachment }) {
 
 export default function ExpenseDetailsDialog({
   expense,
+  closed,
   onClose,
   onEdit,
   onDelete,
 }: {
   expense: Expense;
+  /** The expense is dated in a closed month, so it is read-only. */
+  closed: boolean;
   onClose: () => void;
   onEdit: (expense: Expense) => void;
   onDelete: (expense: Expense) => void;
@@ -170,14 +174,23 @@ export default function ExpenseDetailsDialog({
             <p>No files attached.</p>
           )}
         </section>
+        {closed && (
+          <p className="closed-note" role="note">
+            🔒 {formatMonthName(expense.date.slice(0, 7))} is closed, so this
+            expense is read-only. Reopen the month in Settings → Month closing
+            to change it.
+          </p>
+        )}
         <div className="dialog-actions">
-          <button
-            className="button button-danger"
-            onClick={() => onDelete(expense)}
-            type="button"
-          >
-            Delete
-          </button>
+          {!closed && (
+            <button
+              className="button button-danger"
+              onClick={() => onDelete(expense)}
+              type="button"
+            >
+              Delete
+            </button>
+          )}
           <button
             className="button button-secondary"
             onClick={onClose}
@@ -185,13 +198,15 @@ export default function ExpenseDetailsDialog({
           >
             Close
           </button>
-          <button
-            className="button button-primary"
-            onClick={() => onEdit(expense)}
-            type="button"
-          >
-            Edit transaction
-          </button>
+          {!closed && (
+            <button
+              className="button button-primary"
+              onClick={() => onEdit(expense)}
+              type="button"
+            >
+              Edit transaction
+            </button>
+          )}
         </div>
       </section>
     </div>

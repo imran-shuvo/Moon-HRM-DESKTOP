@@ -10,10 +10,12 @@ function formatDate(value: string) {
 
 export default function BudgetPaymentsTable({
   payments,
+  isDateClosed,
   onEdit,
   onDelete,
 }: {
   payments: BudgetTransaction[];
+  isDateClosed: (date: string) => boolean;
   onEdit: (payment: BudgetTransaction) => void;
   onDelete: (payment: BudgetTransaction) => void;
 }) {
@@ -49,22 +51,33 @@ export default function BudgetPaymentsTable({
                 {formatCurrency(payment.amount)}
               </td>
               <td className="actions-cell">
-                <button
-                  aria-label={`Edit budget from ${payment.paidBy || 'Company'} on ${payment.date}`}
-                  className="table-action"
-                  onClick={() => onEdit(payment)}
-                  type="button"
-                >
-                  Edit
-                </button>
-                <button
-                  aria-label={`Delete budget from ${payment.paidBy || 'Company'} on ${payment.date}`}
-                  className="table-action delete-action"
-                  onClick={() => onDelete(payment)}
-                  type="button"
-                >
-                  Delete
-                </button>
+                {isDateClosed(payment.date) ? (
+                  <span
+                    className="month-badge closed"
+                    title="This month is closed. Reopen it in Settings to make changes."
+                  >
+                    🔒 Closed
+                  </span>
+                ) : (
+                  <>
+                    <button
+                      aria-label={`Edit budget from ${payment.paidBy || 'Company'} on ${payment.date}`}
+                      className="table-action"
+                      onClick={() => onEdit(payment)}
+                      type="button"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      aria-label={`Delete budget from ${payment.paidBy || 'Company'} on ${payment.date}`}
+                      className="table-action delete-action"
+                      onClick={() => onDelete(payment)}
+                      type="button"
+                    >
+                      Delete
+                    </button>
+                  </>
+                )}
               </td>
             </tr>
           ))}
