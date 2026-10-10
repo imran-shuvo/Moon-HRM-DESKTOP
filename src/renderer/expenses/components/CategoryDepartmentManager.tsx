@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { errorMessage } from '../../data/FinanceApiContext';
+import ConfirmDialog from './ConfirmDialog';
 import { BudgetTransaction, Expense } from '../model';
 
 export type ListKind = 'category' | 'department' | 'payee' | 'budgetPayer';
@@ -60,6 +61,10 @@ function ListEditor({
   const [editValue, setEditValue] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<
+    | { action: 'rename'; from: string; to: string }
+    | { action: 'delete'; value: string }
+  >();
 
   async function run(action: () => Promise<void>, onSuccess?: () => void) {
     setBusy(true);
@@ -102,10 +107,13 @@ function ListEditor({
       setError(`${label} already exists.`);
       return;
     }
-    run(
-      () => onRename(editing, value),
-      () => setEditing(''),
-    );
+    if (value === editing) {
+      setEditing('');
+      setError('');
+      return;
+    }
+    setError('');
+    setPending({ action: 'rename', from: editing, to: value });
   }
 
   function deleteItem(value: string) {
@@ -120,8 +128,29 @@ function ListEditor({
       );
       return;
     }
-    run(() => onDelete(value));
+    setError('');
+    setPending({ action: 'delete', value });
   }
+
+  function cancelPending() {
+    setPending(undefined);
+  }
+
+  function confirmPending() {
+    if (!pending) return;
+    if (pending.action === 'rename') {
+      run(
+        () => onRename(pending.from, pending.to),
+        () => setEditing(''),
+      );
+    } else {
+      run(() => onDelete(pending.value));
+    }
+    setPending(undefined);
+  }
+
+  const renameUsage =
+    pending?.action === 'rename' ? usageCount(pending.from) : 0;
 
   return (
     <section className="panel list-manager">
@@ -209,6 +238,38 @@ function ListEditor({
           </li>
         ))}
       </ul>
+      {pending?.action === 'rename' && (
+        <ConfirmDialog
+          id={`${kind}-rename-confirm`}
+          eyebrow={`RENAME ${label.toUpperCase()}`}
+          title={`Rename "${pending.from}"?`}
+          confirmLabel="Rename"
+          danger={false}
+          busy={busy}
+          onCancel={cancelPending}
+          onConfirm={confirmPending}
+        >
+          &ldquo;{pending.from}&rdquo; will be renamed to &ldquo;{pending.to}
+          &rdquo;.
+          {renameUsage > 0 &&
+            ` ${renameUsage} transaction${renameUsage === 1 ? '' : 's'} using it will be updated.`}
+        </ConfirmDialog>
+      )}
+      {pending?.action === 'delete' && (
+        <ConfirmDialog
+          id={`${kind}-delete-confirm`}
+          eyebrow={`DELETE ${label.toUpperCase()}`}
+          title={`Delete "${pending.value}"?`}
+          confirmLabel="Delete"
+          danger
+          busy={busy}
+          onCancel={cancelPending}
+          onConfirm={confirmPending}
+        >
+          &ldquo;{pending.value}&rdquo; will be permanently removed from the{' '}
+          {title.toLowerCase()} list.
+        </ConfirmDialog>
+      )}
     </section>
   );
 }

@@ -37,6 +37,7 @@ import ReportPanel from './expenses/components/ReportPanel';
 import OverviewPanel from './expenses/components/OverviewPanel';
 import BudgetManagementPanel from './expenses/components/BudgetManagementPanel';
 import BudgetPaymentDialog from './expenses/components/BudgetPaymentDialog';
+import ConfirmDialog from './expenses/components/ConfirmDialog';
 import BudgetPrintableReport, {
   PrintableBudgetReportData,
 } from './expenses/components/BudgetPrintableReport';
@@ -1006,83 +1007,35 @@ export default function App({ api }: { api: FinanceApi }) {
           />
         )}
         {expenseToDelete && (
-          <div className="dialog-backdrop">
-            <section
-              aria-labelledby="delete-expense-title"
-              aria-modal="true"
-              className="expense-dialog confirmation-dialog"
-              role="alertdialog"
-            >
-              <div className="dialog-heading">
-                <div>
-                  <p className="eyebrow">DELETE TRANSACTION</p>
-                  <h2 id="delete-expense-title">Delete this expense?</h2>
-                  <p>
-                    The transaction for {expenseToDelete.payee} and its receipt
-                    files will be permanently removed from the database.
-                  </p>
-                </div>
-              </div>
-              <div className="dialog-actions">
-                <button
-                  className="button button-secondary"
-                  disabled={deleting}
-                  onClick={closeDeleteConfirmation}
-                  type="button"
-                >
-                  Cancel
-                </button>
-                <button
-                  className="button button-danger"
-                  disabled={deleting}
-                  onClick={confirmDeleteExpense}
-                  type="button"
-                >
-                  Delete expense
-                </button>
-              </div>
-            </section>
-          </div>
+          <ConfirmDialog
+            id="delete-expense"
+            eyebrow="DELETE TRANSACTION"
+            title="Delete this expense?"
+            confirmLabel="Delete expense"
+            danger
+            busy={deleting}
+            onCancel={closeDeleteConfirmation}
+            onConfirm={confirmDeleteExpense}
+          >
+            The transaction for {expenseToDelete.payee} and its receipt files
+            will be permanently removed from the database.
+          </ConfirmDialog>
         )}
         {paymentToDelete && (
-          <div className="dialog-backdrop">
-            <section
-              aria-labelledby="delete-budget-payment-title"
-              aria-modal="true"
-              className="expense-dialog confirmation-dialog"
-              role="alertdialog"
-            >
-              <div className="dialog-heading">
-                <div>
-                  <p className="eyebrow">DELETE COMPANY PAYMENT</p>
-                  <h2 id="delete-budget-payment-title">Delete this payment?</h2>
-                  <p>
-                    {formatCurrency(paymentToDelete.amount)} received on{' '}
-                    {paymentToDelete.date} will be removed and balances will be
-                    recalculated.
-                  </p>
-                </div>
-              </div>
-              <div className="dialog-actions">
-                <button
-                  className="button button-secondary"
-                  disabled={deleting}
-                  onClick={closePaymentDeleteConfirmation}
-                  type="button"
-                >
-                  Cancel
-                </button>
-                <button
-                  className="button button-danger"
-                  disabled={deleting}
-                  onClick={confirmDeleteBudgetPayment}
-                  type="button"
-                >
-                  Delete payment
-                </button>
-              </div>
-            </section>
-          </div>
+          <ConfirmDialog
+            id="delete-budget-payment"
+            eyebrow="DELETE COMPANY PAYMENT"
+            title="Delete this payment?"
+            confirmLabel="Delete payment"
+            danger
+            busy={deleting}
+            onCancel={closePaymentDeleteConfirmation}
+            onConfirm={confirmDeleteBudgetPayment}
+          >
+            {formatCurrency(paymentToDelete.amount)} received on{' '}
+            {paymentToDelete.date} will be removed and balances will be
+            recalculated.
+          </ConfirmDialog>
         )}
       </div>
       {printReport && <PrintableReport data={printReport} />}

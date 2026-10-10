@@ -913,6 +913,10 @@ describe('App', () => {
       { target: { value: 'Pacific Supply Group' } },
     );
     fireEvent.click(payeeList.getByRole('button', { name: 'Save' }));
+    expect(memory.snapshot().payees).toContain('Pacific Building Supply');
+    const confirmation = within(screen.getByRole('alertdialog'));
+    expect(confirmation.getByText(/will be updated/)).toBeInTheDocument();
+    fireEvent.click(confirmation.getByRole('button', { name: 'Rename' }));
 
     await waitFor(() =>
       expect(memory.snapshot().payees).toContain('Pacific Supply Group'),
@@ -920,6 +924,46 @@ describe('App', () => {
     const payees = memory.snapshot().expenses.map((expense) => expense.payee);
     expect(payees).toContain('Pacific Supply Group');
     expect(payees).not.toContain('Pacific Building Supply');
+  });
+
+  it('asks before deleting an unused list item', async () => {
+    const memory = await renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+    const payeeList = within(
+      screen
+        .getByRole('heading', { name: 'Paid to (expenses)' })
+        .closest('section') as HTMLElement,
+    );
+    fireEvent.change(payeeList.getByLabelText('New paid to name'), {
+      target: { value: 'Temporary Vendor' },
+    });
+    fireEvent.click(payeeList.getByRole('button', { name: 'Add' }));
+    await waitFor(() =>
+      expect(memory.snapshot().payees).toContain('Temporary Vendor'),
+    );
+
+    fireEvent.click(
+      payeeList.getByRole('button', { name: 'Delete Temporary Vendor' }),
+    );
+    fireEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: 'Cancel',
+      }),
+    );
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(memory.snapshot().payees).toContain('Temporary Vendor');
+
+    fireEvent.click(
+      payeeList.getByRole('button', { name: 'Delete Temporary Vendor' }),
+    );
+    fireEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: 'Delete',
+      }),
+    );
+    await waitFor(() =>
+      expect(memory.snapshot().payees).not.toContain('Temporary Vendor'),
+    );
   });
 
   it('previews and exports the filtered expenses as a PDF', async () => {
