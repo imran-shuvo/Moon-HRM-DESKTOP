@@ -4,7 +4,7 @@ import {
   monthKey,
   previousMonthKey,
 } from '../../../shared/months';
-import { Budget, Expense, formatCurrency } from '../model';
+import { Budget, Expense, formatAmount, formatCurrency } from '../model';
 import ExpenseTable from './ExpenseTable';
 import SpendChart from './SpendChart';
 import CategorySpendCard from './CategorySpendCard';
@@ -99,9 +99,9 @@ export default function OverviewPanel({
           <p className="stat-label">Total budget</p>
           <strong>{formatCurrency(totalBudget)}</strong>
           <p className="stat-foot">
-            {formatCurrency(broughtForward)} brought forward from{' '}
+            {formatAmount(broughtForward)} brought forward from{' '}
             {formatMonthName(previousMonthKey(month))} +{' '}
-            {formatCurrency(received)} received
+            {formatAmount(received)} received
           </p>
         </article>
         <article className="stat-card">

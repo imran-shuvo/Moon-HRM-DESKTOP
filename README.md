@@ -24,6 +24,41 @@ Built with Electron, React and TypeScript.
   Iqama expiry, marks in red any Iqama expiring within 30 days, and filters
   by designation, project and camp. An expense's "Paid to" and a budget's
   payee are chosen from employees.
+- **Attendance** (company, outsource and camp workers; staff have none),
+  in three views:
+  - *Daily register*: one click per employee for Present, Absent, Leave,
+    Vacation or Holiday, hours with overtime shown as you type, a note, and
+    "mark everyone not recorded as …" for a whole project or camp.
+  - *Monthly sheet*: every day colour-coded, with totals per status, hours
+    and overtime. Grouped by project, camp or role.
+  - *Employee report*: one person's month as a calendar.
+
+  Friday is the weekly holiday. The sheet and employee reports export as
+  colour-coded PDFs with a legend.
+- **Payroll**, one month at a time:
+  - *Payslips*: net, paid and unpaid totals; **Create payslips** for
+    everyone or one project, camp or role; click a name to read, edit, pay or
+    print a payslip; mark many as paid at once; print payslips or the payroll
+    sheet.
+  - *Advances*: give one to an employee or a whole project, camp, role or
+    everyone, and see what is still owed.
+  - *Payroll settings* (⚙): overtime rate, fines, and whether leave and
+    vacation are paid.
+
+  Pay rules:
+  - Company and camp workers: basic salary, less a day's pay for each absent
+    day (and each leave or vacation day if it is unpaid). Hours beyond their
+    basic hours a day, and all Friday hours, are overtime at 20 × 1.5 an hour.
+    Absent days beyond the first are fined 20.
+  - Outsource workers: hours worked × rate per hour.
+  - Staff: basic salary.
+  - Advances are deducted from the next payslip up to its pay; the rest
+    carries forward.
+
+  Every amount on a payslip can be edited. Paid payslips are locked until
+  marked unpaid. Payslips and the payroll sheet export as PDFs. An employee
+  with attendance, advances or payslips cannot be deleted, so payroll
+  history is never lost. Amounts are in SAR.
 - **Types and departments**: chosen from dropdowns when adding an expense;
   a new one can be typed there and is saved for next time.
 - **Backup & restore**: automatic and manual backups to a single

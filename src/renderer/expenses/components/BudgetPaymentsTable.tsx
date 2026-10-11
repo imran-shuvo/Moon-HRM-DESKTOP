@@ -1,4 +1,4 @@
-import { BudgetTransaction, bySerialNo, formatCurrency } from '../model';
+import { BudgetTransaction, bySerialNo, formatAmount } from '../model';
 
 function formatDate(value: string) {
   return new Date(`${value}T12:00:00`).toLocaleDateString('en-US', {
@@ -48,7 +48,7 @@ export default function BudgetPaymentsTable({
               </td>
               <td className="department-cell">{payment.note || '—'}</td>
               <td className="amount-cell ledger-in-amount">
-                {formatCurrency(payment.amount)}
+                {formatAmount(payment.amount)}
               </td>
               <td className="actions-cell">
                 {isDateClosed(payment.date) ? (

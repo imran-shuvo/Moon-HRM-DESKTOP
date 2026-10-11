@@ -79,10 +79,112 @@ export type Employee = {
   /** 'YYYY-MM-DD', or '' when not recorded. */
   iqamaExpiry: string;
   campName: string;
+  /** Basic hours a day; hours worked beyond this are overtime. */
+  workHoursPerDay: number;
+  /** SAR per hour for outsource workers, or null when not recorded. */
+  hourlyRate: number | null;
 };
 
 /** Fields the user edits for an employee. */
 export type EmployeeInput = Omit<Employee, 'id'>;
+
+export type AttendanceStatus =
+  | 'present'
+  | 'absent'
+  | 'leave'
+  | 'vacation'
+  | 'holiday';
+
+/** One employee's attendance on one day. Staff have no attendance. */
+export type AttendanceEntry = {
+  employeeId: string;
+  /** 'YYYY-MM-DD' */
+  date: string;
+  status: AttendanceStatus;
+  /** Hours worked that day (0 unless present). */
+  hours: number;
+  note: string;
+};
+
+/** A row of the daily attendance sheet; a null status clears the day. */
+export type AttendanceDayInput = {
+  employeeId: string;
+  status: AttendanceStatus | null;
+  hours: number;
+  note: string;
+};
+
+export type SalaryAdvance = {
+  id: string;
+  employeeId: string;
+  date: string;
+  amount: number;
+  note: string;
+  createdAt?: number;
+};
+
+export type SalaryAdvanceInput = Omit<SalaryAdvance, 'id' | 'createdAt'>;
+
+export type PayslipStatus = 'unpaid' | 'paid';
+
+/**
+ * Every amount on a payslip is editable. The defaults come from attendance,
+ * advances and the payroll settings (see shared/payroll.ts).
+ */
+export type PayslipInput = {
+  employeeId: string;
+  /** 'YYYY-MM' */
+  month: string;
+  workingDays: number;
+  presentDays: number;
+  absentDays: number;
+  leaveDays: number;
+  vacationDays: number;
+  holidayDays: number;
+  hoursWorked: number;
+  /** Monthly basic salary (company, camp and staff). */
+  basicSalary: number;
+  /** SAR per hour (outsource workers). */
+  hourlyRate: number;
+  /** Earned from the basic salary or hourly rate, before deductions. */
+  basicPay: number;
+  overtimeHours: number;
+  overtimeRate: number;
+  allowance: number;
+  absenceDeduction: number;
+  absenceFine: number;
+  advanceDeduction: number;
+  otherDeduction: number;
+  note: string;
+};
+
+export type Payslip = PayslipInput & {
+  id: string;
+  /** Employee details as they were when the payslip was last saved. */
+  employeeName: string;
+  iqamaNo: string;
+  role: EmployeeRole;
+  designation: string;
+  projectName: string;
+  campName: string;
+  overtimePay: number;
+  netPay: number;
+  status: PayslipStatus;
+  /** 'YYYY-MM-DD' when paid, otherwise ''. */
+  paidDate: string;
+};
+
+export type PayrollSettings = {
+  /** Overtime pays overtimeBaseRate × overtimeMultiplier per hour. */
+  overtimeBaseRate: number;
+  overtimeMultiplier: number;
+  /** Fine per absent day beyond the free days. */
+  absenceFine: number;
+  absenceFineFreeDays: number;
+  /** Whether leave and vacation days are paid by default. */
+  leavePaid: boolean;
+  vacationPaid: boolean;
+};
 
 export type BudgetTransactionInput = {
   date: string;
@@ -113,6 +215,10 @@ export type FinanceSnapshot = {
   employees: Employee[];
   /** Past months ('YYYY-MM') reopened for corrections; others are closed. */
   reopenedMonths: string[];
+  /** Attendance is loaded a month at a time instead (attendance.list). */
+  salaryAdvances: SalaryAdvance[];
+  payslips: Payslip[];
+  payrollSettings: PayrollSettings;
 };
 
 /** Data saved in localStorage/IndexedDB by the pre-database version of the app. */
@@ -156,6 +262,9 @@ export type BackupCounts = {
   categories: number;
   departments: number;
   employees: number;
+  attendance: number;
+  salaryAdvances: number;
+  payslips: number;
 };
 
 export type BackupFileInfo = {
@@ -223,6 +332,36 @@ export type FinanceApi = {
     update: (id: string, input: EmployeeInput) => Promise<Employee>;
     remove: (id: string) => Promise<void>;
   };
+  attendance: {
+    /** Every attendance entry dated in the month ('YYYY-MM'). */
+    list: (month: string) => Promise<AttendanceEntry[]>;
+    /** Saves the given rows for one date; returns that date's entries. */
+    saveDay: (
+      date: string,
+      rows: AttendanceDayInput[],
+    ) => Promise<AttendanceEntry[]>;
+  };
+  salaryAdvances: {
+    /** Several at once, e.g. the same advance for every employee. */
+    create: (inputs: SalaryAdvanceInput[]) => Promise<SalaryAdvance[]>;
+    update: (id: string, input: SalaryAdvanceInput) => Promise<SalaryAdvance>;
+    remove: (id: string) => Promise<void>;
+  };
+  payslips: {
+    /**
+     * Creates new payslips. Refused (and nothing saved) if an employee
+     * already has one for the month, so it never replaces anyone's edits.
+     */
+    create: (inputs: PayslipInput[]) => Promise<Payslip[]>;
+    /** Creates or replaces each employee's payslip for the month; paid ones are refused. */
+    save: (inputs: PayslipInput[]) => Promise<Payslip[]>;
+    /** Marks payslips paid on `paidDate`, or unpaid when it is null. */
+    setPaid: (ids: string[], paidDate: string | null) => Promise<Payslip[]>;
+    remove: (id: string) => Promise<void>;
+  };
+  payroll: {
+    updateSettings: (settings: PayrollSettings) => Promise<PayrollSettings>;
+  };
   months: {
     /** Makes a closed month editable again. */
     reopen: (month: string) => Promise<void>;
@@ -245,7 +384,10 @@ export type FinanceApi = {
   };
   reports: {
     /** Saves the currently rendered printable report as a PDF; undefined when cancelled. */
-    savePdf: (fileName: string) => Promise<string | undefined>;
+    savePdf: (
+      fileName: string,
+      options?: { landscape?: boolean },
+    ) => Promise<string | undefined>;
   };
 };
 

@@ -3,6 +3,7 @@ import { formatMonthName } from '../../../shared/months';
 import {
   Expense,
   ExpenseAttachment,
+  formatAmount,
   formatCurrency,
   getExpenseTotal,
 } from '../model';
@@ -156,12 +157,12 @@ export default function ExpenseDetailsDialog({
           <div>
             <dt>Amount excluding VAT</dt>
             <dd>
-              {formatCurrency(expense.amountExcludingVat ?? expense.amount)}
+              {formatAmount(expense.amountExcludingVat ?? expense.amount)}
             </dd>
           </div>
           <div>
             <dt>VAT</dt>
-            <dd>{formatCurrency(expense.vat ?? 0)}</dd>
+            <dd>{formatAmount(expense.vat ?? 0)}</dd>
           </div>
           <div className="detail-total">
             <dt>Amount including VAT</dt>

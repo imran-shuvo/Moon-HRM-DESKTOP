@@ -40,6 +40,24 @@ const financeApi: FinanceApi = {
     update: (id, input) => invoke(IPC.employeeUpdate, id, input),
     remove: (id) => invoke(IPC.employeeDelete, id),
   },
+  attendance: {
+    list: (month) => invoke(IPC.attendanceList, month),
+    saveDay: (date, rows) => invoke(IPC.attendanceSaveDay, date, rows),
+  },
+  salaryAdvances: {
+    create: (inputs) => invoke(IPC.advanceCreate, inputs),
+    update: (id, input) => invoke(IPC.advanceUpdate, id, input),
+    remove: (id) => invoke(IPC.advanceDelete, id),
+  },
+  payslips: {
+    create: (inputs) => invoke(IPC.payslipCreate, inputs),
+    save: (inputs) => invoke(IPC.payslipSave, inputs),
+    setPaid: (ids, paidDate) => invoke(IPC.payslipSetPaid, ids, paidDate),
+    remove: (id) => invoke(IPC.payslipDelete, id),
+  },
+  payroll: {
+    updateSettings: (settings) => invoke(IPC.payrollUpdateSettings, settings),
+  },
   months: {
     reopen: (month) => invoke(IPC.monthReopen, month),
     close: (month) => invoke(IPC.monthClose, month),
@@ -57,7 +75,8 @@ const financeApi: FinanceApi = {
     restore: (path) => invoke(IPC.backupRestore, path),
   },
   reports: {
-    savePdf: (fileName) => invoke(IPC.reportSavePdf, fileName),
+    savePdf: (fileName, options) =>
+      invoke(IPC.reportSavePdf, fileName, options),
   },
 };
 

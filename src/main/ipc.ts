@@ -15,8 +15,16 @@ import IPC from '../shared/ipcChannels';
 import { monthKey } from '../shared/months';
 import { IpcResult } from '../shared/types';
 import {
+  calendarMonth,
   pastMonth,
   recordId,
+  recordIds,
+  validateAttendanceDay,
+  validatePaidDate,
+  validatePayrollSettings,
+  validatePayslipInputs,
+  validateSalaryAdvanceInput,
+  validateSalaryAdvanceInputs,
   validateBudgetTransactionInput,
   validateConnectionSettings,
   validateEmployeeInput,
@@ -206,11 +214,55 @@ export default function registerIpcHandlers({
     repository.deleteEmployee(db(), recordId(id)),
   );
 
-  handle(IPC.monthReopen, (month: unknown) =>
-    repository.reopenMonth(db(), pastMonth(month, monthKey())),
+  handle(IPC.attendanceList, (value: unknown) =>
+    repository.listAttendance(db(), calendarMonth(value)),
   );
-  handle(IPC.monthClose, (month: unknown) =>
-    repository.closeMonth(db(), pastMonth(month, monthKey())),
+  handle(IPC.attendanceSaveDay, (date: unknown, rows: unknown) => {
+    const day = validateAttendanceDay(date, rows);
+    return repository.saveAttendanceDay(db(), day.date, day.rows);
+  });
+
+  handle(IPC.advanceCreate, (inputs: unknown) =>
+    repository.createSalaryAdvances(db(), validateSalaryAdvanceInputs(inputs)),
+  );
+  handle(IPC.advanceUpdate, (id: unknown, input: unknown) =>
+    repository.updateSalaryAdvance(
+      db(),
+      recordId(id),
+      validateSalaryAdvanceInput(input),
+    ),
+  );
+  handle(IPC.advanceDelete, (id: unknown) =>
+    repository.deleteSalaryAdvance(db(), recordId(id)),
+  );
+
+  handle(IPC.payslipCreate, (inputs: unknown) =>
+    repository.savePayslips(db(), validatePayslipInputs(inputs), {
+      createOnly: true,
+    }),
+  );
+  handle(IPC.payslipSave, (inputs: unknown) =>
+    repository.savePayslips(db(), validatePayslipInputs(inputs)),
+  );
+  handle(IPC.payslipSetPaid, (ids: unknown, paidDate: unknown) =>
+    repository.setPayslipsPaid(
+      db(),
+      recordIds(ids),
+      validatePaidDate(paidDate),
+    ),
+  );
+  handle(IPC.payslipDelete, (id: unknown) =>
+    repository.deletePayslip(db(), recordId(id)),
+  );
+  handle(IPC.payrollUpdateSettings, (settings: unknown) =>
+    repository.updatePayrollSettings(db(), validatePayrollSettings(settings)),
+  );
+
+  handle(IPC.monthReopen, (value: unknown) =>
+    repository.reopenMonth(db(), pastMonth(value, monthKey())),
+  );
+  handle(IPC.monthClose, (value: unknown) =>
+    repository.closeMonth(db(), pastMonth(value, monthKey())),
   );
 
   handle(IPC.backupSettings, () => backups.settings());
@@ -278,7 +330,11 @@ export default function registerIpcHandlers({
     return result;
   });
 
-  handle(IPC.reportSavePdf, async (fileName: unknown) => {
+  handle(IPC.reportSavePdf, async (fileName: unknown, pdfOptions: unknown) => {
+    const landscape =
+      typeof pdfOptions === 'object' &&
+      pdfOptions !== null &&
+      (pdfOptions as { landscape?: unknown }).landscape === true;
     const window = getWindow();
     if (!window) throw new AppError('INTERNAL', 'The app window is not open.');
     const baseName =
@@ -301,7 +357,7 @@ export default function registerIpcHandlers({
     const month = now.toLocaleString('en-US', { month: 'short' });
     const reportDate = `${String(now.getDate()).padStart(2, '0')}-${month}-${now.getFullYear()}`;
     const pdf = await window.webContents.printToPDF({
-      landscape: false,
+      landscape,
       printBackground: true,
       pageSize: 'A4',
       margins: {

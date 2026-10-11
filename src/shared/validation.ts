@@ -1,12 +1,18 @@
 import { EMPLOYEE_ROLES, isEmployeeRole } from './employeeRoles';
 import { AppError } from './errors';
+import { ATTENDANCE_STATUSES, DEFAULT_WORK_HOURS_PER_DAY } from './payroll';
 import {
   AttachmentUpload,
+  AttendanceDayInput,
+  AttendanceStatus,
   BudgetTransactionInput,
   DatabaseConnectionSettings,
   EmployeeInput,
   ExpenseInput,
   LegacyImportPayload,
+  PayrollSettings,
+  PayslipInput,
+  SalaryAdvanceInput,
 } from './types';
 
 export const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
@@ -71,6 +77,45 @@ export function money(
   }
   if (rounded > MAX_AMOUNT) fail(`${label} is too large.`);
   return rounded;
+}
+
+/** A number in [min, max], rounded to two decimals (hours, rates, days). */
+export function quantity(
+  value: unknown,
+  label: string,
+  {
+    min = 0,
+    max,
+    integer = false,
+  }: { min?: number; max: number; integer?: boolean },
+): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    fail(`${label} must be a number.`);
+  }
+  if (integer && !Number.isInteger(value))
+    fail(`${label} must be a whole number.`);
+  const rounded = Math.round(value * 100) / 100;
+  if (rounded < min || rounded > max) {
+    fail(`${label} must be between ${min} and ${max}.`);
+  }
+  return rounded;
+}
+
+/** A calendar month, 'YYYY-MM'. */
+export function calendarMonth(value: unknown, label = 'Month'): string {
+  if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
+    fail(`${label} must be a month in YYYY-MM format.`);
+  }
+  return value;
+}
+
+function nonEmptyList(value: unknown, label: string, max: number): unknown[] {
+  if (!Array.isArray(value)) fail(`${label} are malformed.`);
+  if (value.length === 0)
+    fail(`Nothing to save: ${label.toLowerCase()} are empty.`);
+  if (value.length > max)
+    fail(`Save at most ${max} ${label.toLowerCase()} at a time.`);
+  return value;
 }
 
 export function listName(value: unknown, label: string): string {
@@ -140,6 +185,154 @@ export function validateEmployeeInput(value: unknown): EmployeeInput {
       ? isoDate(input.iqamaExpiry, 'Iqama expiry date')
       : '',
     campName: text(input.campName, 'Camp name', { max: 120 }),
+    // Older callers (and backups) may not send these yet.
+    workHoursPerDay:
+      input.workHoursPerDay === undefined || input.workHoursPerDay === null
+        ? DEFAULT_WORK_HOURS_PER_DAY
+        : quantity(input.workHoursPerDay, 'Basic hours a day', {
+            min: 1,
+            max: 24,
+          }),
+    hourlyRate:
+      input.hourlyRate === null || input.hourlyRate === undefined
+        ? null
+        : money(input.hourlyRate, 'Rate per hour', { allowZero: true }),
+  };
+}
+
+const isAttendanceStatus = (value: unknown): value is AttendanceStatus =>
+  ATTENDANCE_STATUSES.includes(value as AttendanceStatus);
+
+export function validateAttendanceDay(
+  date: unknown,
+  rows: unknown,
+): { date: string; rows: AttendanceDayInput[] } {
+  const day = isoDate(date, 'Attendance date');
+  const seen = new Set<string>();
+  return {
+    date: day,
+    rows: nonEmptyList(rows, 'Attendance rows', 2000).map((item) => {
+      const row = asRecord(item, 'Attendance row');
+      const employeeId = recordId(row.employeeId);
+      if (seen.has(employeeId))
+        fail('An employee is listed twice for one day.');
+      seen.add(employeeId);
+      if (row.status !== null && !isAttendanceStatus(row.status)) {
+        fail(
+          `Attendance status must be one of: ${ATTENDANCE_STATUSES.join(', ')}.`,
+        );
+      }
+      const status = row.status as AttendanceStatus | null;
+      const hours = quantity(row.hours ?? 0, 'Hours worked', { max: 24 });
+      return {
+        employeeId,
+        status,
+        // Only a present day has hours, so totals never count stray hours.
+        hours: status === 'present' ? hours : 0,
+        note: status ? text(row.note, 'Attendance note', { max: 200 }) : '',
+      };
+    }),
+  };
+}
+
+export function validateSalaryAdvanceInput(value: unknown): SalaryAdvanceInput {
+  const input = asRecord(value, 'Advance');
+  return {
+    employeeId: recordId(input.employeeId),
+    date: isoDate(input.date, 'Advance date'),
+    amount: money(input.amount, 'Advance amount', { allowZero: false }),
+    note: text(input.note, 'Note', { max: 200 }),
+  };
+}
+
+export function validateSalaryAdvanceInputs(
+  value: unknown,
+): SalaryAdvanceInput[] {
+  return nonEmptyList(value, 'Advances', 2000).map(validateSalaryAdvanceInput);
+}
+
+export function validatePayslipInput(value: unknown): PayslipInput {
+  const input = asRecord(value, 'Payslip');
+  const days = (key: string, label: string) =>
+    quantity(input[key], label, { max: 31, integer: true });
+  const amount = (key: string, label: string) =>
+    money(input[key], label, { allowZero: true });
+  return {
+    employeeId: recordId(input.employeeId),
+    month: calendarMonth(input.month, 'Payslip month'),
+    workingDays: days('workingDays', 'Working days'),
+    presentDays: days('presentDays', 'Present days'),
+    absentDays: days('absentDays', 'Absent days'),
+    leaveDays: days('leaveDays', 'Leave days'),
+    // Not sent by payslips saved before vacation was added.
+    vacationDays:
+      input.vacationDays === undefined
+        ? 0
+        : days('vacationDays', 'Vacation days'),
+    holidayDays: days('holidayDays', 'Holiday days'),
+    hoursWorked: quantity(input.hoursWorked, 'Hours worked', { max: 744 }),
+    basicSalary: amount('basicSalary', 'Basic salary'),
+    hourlyRate: amount('hourlyRate', 'Rate per hour'),
+    basicPay: amount('basicPay', 'Basic pay'),
+    overtimeHours: quantity(input.overtimeHours, 'Overtime hours', {
+      max: 744,
+    }),
+    overtimeRate: amount('overtimeRate', 'Overtime rate'),
+    allowance: amount('allowance', 'Allowance'),
+    absenceDeduction: amount('absenceDeduction', 'Absence / leave deduction'),
+    absenceFine: amount('absenceFine', 'Absence fine'),
+    advanceDeduction: amount('advanceDeduction', 'Advance deduction'),
+    otherDeduction: amount('otherDeduction', 'Other deduction'),
+    note: text(input.note, 'Note', { max: 300 }),
+  };
+}
+
+export function validatePayslipInputs(value: unknown): PayslipInput[] {
+  const inputs = nonEmptyList(value, 'Payslips', 2000).map(
+    validatePayslipInput,
+  );
+  const keys = new Set(
+    inputs.map((input) => `${input.employeeId}|${input.month}`),
+  );
+  if (keys.size !== inputs.length)
+    fail('An employee has two payslips for one month.');
+  return inputs;
+}
+
+export function validatePaidDate(value: unknown): string | null {
+  return value === null ? null : isoDate(value, 'Paid date');
+}
+
+export function recordIds(value: unknown): string[] {
+  return [...new Set(nonEmptyList(value, 'Payslips', 2000).map(recordId))];
+}
+
+function flag(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') fail(`${label} must be yes or no.`);
+  return value;
+}
+
+export function validatePayrollSettings(value: unknown): PayrollSettings {
+  const input = asRecord(value, 'Payroll settings');
+  return {
+    overtimeBaseRate: money(input.overtimeBaseRate, 'Overtime base rate', {
+      allowZero: true,
+    }),
+    overtimeMultiplier: quantity(
+      input.overtimeMultiplier,
+      'Overtime multiplier',
+      {
+        max: 10,
+      },
+    ),
+    absenceFine: money(input.absenceFine, 'Absence fine', { allowZero: true }),
+    absenceFineFreeDays: quantity(
+      input.absenceFineFreeDays,
+      'Absent days without a fine',
+      { max: 31, integer: true },
+    ),
+    leavePaid: flag(input.leavePaid, 'Leave paid'),
+    vacationPaid: flag(input.vacationPaid, 'Vacation paid'),
   };
 }
 

@@ -14,6 +14,7 @@ import {
   Employee,
   Expense,
   calculateBudgetForPeriod,
+  formatAmount,
   formatCurrency,
   getMonthDateRange,
   getMonthlyExpenseSummaries,
@@ -58,6 +59,8 @@ function testEmployee(name: string, index: number): Employee {
     salary: null,
     iqamaExpiry: '',
     campName: '',
+    workHoursPerDay: 8,
+    hourlyRate: null,
   };
 }
 
@@ -85,6 +88,14 @@ async function renderApp(
   render(<App api={memory.api} />);
   await screen.findByRole('navigation', { name: 'Main navigation' });
   return memory;
+}
+
+/** Ticks (or unticks) an option in a page's filter dropdown. */
+function tickFilter(filterLabel: string, option: string) {
+  const control = screen
+    .getAllByText(filterLabel, { selector: '.filter-control > span' })[0]
+    .closest('.filter-control') as HTMLElement;
+  fireEvent.click(within(control).getByRole('checkbox', { name: option }));
 }
 
 /** Picks an employee name in a dropdown. */
@@ -132,6 +143,7 @@ async function waitForDialogToClose() {
 describe('App', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     freezeToday();
   });
 
@@ -204,9 +216,10 @@ describe('App', () => {
     const monthTable = within(
       screen.getByLabelText('Monthly expenses by month'),
     );
+    // Rows show plain amounts; only totals carry the currency.
     expect(
       monthTable.getByText(
-        matchesCurrency(
+        formatAmount(
           getMonthlyExpenseSummaries(expenses).find(
             ({ month }) => month === getMonthDateRange().start.slice(0, 7),
           )?.total ?? 0,
@@ -438,9 +451,7 @@ describe('App', () => {
   it('filters expenses by payee and date range', async () => {
     const memory = await renderApp();
     fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
-    fireEvent.change(screen.getByLabelText('Filter by payee'), {
-      target: { value: 'Pacific Building Supply' },
-    });
+    tickFilter('Paid to', 'Pacific Building Supply');
 
     const table = within(screen.getByRole('table'));
     expect(
@@ -458,6 +469,67 @@ describe('App', () => {
     expect(
       table.getAllByText('Pacific Building Supply').length,
     ).toBeGreaterThan(0);
+  });
+
+  it('filters with date presets, removable chips and a result count', async () => {
+    const memory = await renderApp();
+    const total = memory.snapshot().expenses.length;
+    fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    expect(
+      screen.getByText(/^All/, { selector: '.result-count' }).textContent,
+    ).toBe(`All ${total} expenses`);
+
+    // Today is frozen at 2026-10-28; sample expenses go up to 20 days back.
+    fireEvent.click(screen.getByRole('button', { name: 'Today' }));
+    const today = memory
+      .snapshot()
+      .expenses.filter((expense) => expense.date === '2026-10-28').length;
+    expect(
+      screen.getByText(/Showing/, { selector: '.result-count' }).textContent,
+    ).toBe(`Showing ${today} of ${total} expenses`);
+    expect(screen.getByLabelText('Filter expenses from date')).toHaveValue(
+      '2026-10-28',
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove filter Date: Today' }),
+    );
+    expect(
+      screen.getByText(/^All/, { selector: '.result-count' }).textContent,
+    ).toBe(`All ${total} expenses`);
+
+    // Long lists can be searched inside the dropdown.
+    fireEvent.change(screen.getByLabelText('Search paid to'), {
+      target: { value: 'pacific' },
+    });
+    const payee = screen
+      .getAllByText('Paid to', { selector: '.filter-control > span' })[0]
+      .closest('.filter-control') as HTMLElement;
+    expect(
+      within(payee)
+        .getAllByRole('checkbox')
+        .map((box) => box.getAttribute('aria-label')),
+    ).toEqual(['Pacific Building Supply']);
+    fireEvent.click(
+      within(payee).getByRole('button', { name: 'Select matches' }),
+    );
+    expect(
+      screen.getByRole('button', {
+        name: 'Remove filter Paid to: Pacific Building Supply',
+      }),
+    ).toBeInTheDocument();
+
+    // Filters are remembered when moving between pages.
+    fireEvent.click(screen.getByRole('button', { name: /overview/i }));
+    fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    expect(
+      screen.getByRole('button', {
+        name: 'Remove filter Paid to: Pacific Building Supply',
+      }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(
+      screen.getByText(/^All/, { selector: '.result-count' }).textContent,
+    ).toBe(`All ${total} expenses`);
   });
 
   it('filters out expenses outside the date range', async () => {
@@ -583,7 +655,7 @@ describe('App', () => {
     await waitForDialogToClose();
 
     const budgetTable = within(screen.getByRole('table'));
-    expect(budgetTable.getByText(/SAR.*50,000\.00/)).toBeInTheDocument();
+    expect(budgetTable.getByText('50,000.00')).toBeInTheDocument();
     expect(
       budgetTable.getByRole('columnheader', { name: 'SERIAL NO.' }),
     ).toBeInTheDocument();
@@ -658,21 +730,14 @@ describe('App', () => {
 
     await addPayment('Acme Ltd', '2026-01-03', 'Cash');
     await addPayment('Northwind', '2026-02-03', 'Card');
-    fireEvent.change(screen.getByLabelText('Filter budgets by payer'), {
-      target: { value: 'Acme Ltd' },
-    });
+    tickFilter('Payee', 'Acme Ltd');
     fireEvent.change(screen.getByLabelText('Filter budgets from date'), {
       target: { value: '2026-01-01' },
     });
     fireEvent.change(screen.getByLabelText('Filter budgets to date'), {
       target: { value: '2026-01-31' },
     });
-    fireEvent.change(
-      screen.getByLabelText('Filter budgets by payment method'),
-      {
-        target: { value: 'Cash' },
-      },
-    );
+    tickFilter('Method', 'Cash');
 
     const table = within(screen.getByRole('table'));
     expect(table.getByText('Acme Ltd')).toBeInTheDocument();
@@ -709,9 +774,7 @@ describe('App', () => {
     const memory = await renderApp({ expenses: [], budgetTransactions });
     const savePdf = jest.spyOn(memory.api.reports, 'savePdf');
     fireEvent.click(screen.getByRole('button', { name: /budgets/i }));
-    fireEvent.change(screen.getByLabelText('Filter budgets by payer'), {
-      target: { value: 'Acme Ltd' },
-    });
+    tickFilter('Payee', 'Acme Ltd');
     fireEvent.click(screen.getByRole('button', { name: 'Preview PDF' }));
 
     expect(
@@ -934,7 +997,7 @@ describe('App', () => {
     fireEvent.change(dialog.getByLabelText('Nickname'), {
       target: { value: 'Rahim' },
     });
-    fireEvent.change(dialog.getByLabelText('Salary (SAR)'), {
+    fireEvent.change(dialog.getByLabelText('Basic salary (SAR / month)'), {
       target: { value: '2500.50' },
     });
     fireEvent.click(dialog.getByRole('button', { name: 'Save employee' }));
@@ -1052,19 +1115,13 @@ describe('App', () => {
     expect(row('Soon Worker')).toHaveClass('iqama-expiring');
     expect(row('Safe Worker')).not.toHaveClass('iqama-expiring');
 
-    fireEvent.change(screen.getByLabelText('Filter employees by designation'), {
-      target: { value: 'Cleaner' },
-    });
-    fireEvent.change(screen.getByLabelText('Filter employees by camp'), {
-      target: { value: 'Camp B' },
-    });
+    tickFilter('Designation', 'Cleaner');
+    tickFilter('Camp', 'Camp B');
     expect(within(table).getByText('Safe Worker')).toBeInTheDocument();
     expect(within(table).queryByText('Expired Worker')).not.toBeInTheDocument();
     expect(within(table).queryByText('Soon Worker')).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Filter employees by project'), {
-      target: { value: 'Mall' },
-    });
+    tickFilter('Project', 'Mall');
     expect(
       screen.getByText('No employees match these filters.'),
     ).toBeInTheDocument();
@@ -1094,11 +1151,18 @@ describe('App', () => {
     const roles = within(screen.getByRole('group', { name: 'Role' }));
     fireEvent.click(roles.getByLabelText('Staff'));
     expect(listed()).toEqual(['Staff Member']);
-    expect(screen.getByText('Staff', { selector: 'summary' })).toBeVisible();
+    expect(
+      screen.getByText('Staff', { selector: '.multi-select-summary' }),
+    ).toBeVisible();
 
     fireEvent.click(roles.getByLabelText('Outsource camp worker'));
     expect(listed()).toEqual(['Staff Member', 'Camp Worker']);
-    expect(screen.getByText('2 selected')).toBeInTheDocument();
+    // One or two choices are named; more show a count.
+    expect(
+      screen.getByText('Staff, Outsource camp worker', {
+        selector: '.multi-select-summary',
+      }),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview PDF' }));
     expect(
@@ -1132,33 +1196,46 @@ describe('App', () => {
     const savePdf = jest.spyOn(memory.api.reports, 'savePdf');
     fireEvent.click(screen.getByRole('button', { name: /employees/i }));
     const table = within(screen.getByRole('table'));
-    const status = screen.getByLabelText('Filter employees by Iqama status');
+    const status = (label: string) => tickFilter('Iqama status', label);
     const listed = () =>
       table
         .queryAllByRole('button', { name: /^View employee/ })
         .map((button) => button.textContent);
 
-    fireEvent.change(status, { target: { value: 'expired' } });
+    status('Expired');
     expect(listed()).toEqual(['Expired Worker']);
-    fireEvent.change(status, { target: { value: 'expiring' } });
+    status('Expired');
+    status('Expiring within 30 days');
     expect(listed()).toEqual(['Soon Worker']);
-    fireEvent.change(status, { target: { value: 'missing' } });
-    expect(listed()).toEqual(['Unknown Worker']);
-    fireEvent.change(status, { target: { value: 'valid' } });
+    // Several statuses at once.
+    status('Not recorded');
+    expect(listed()).toEqual(['Soon Worker', 'Unknown Worker']);
+    status('Expiring within 30 days');
+    status('Not recorded');
+    status('Valid');
     expect(listed()).toEqual(['Valid Worker']);
+    // Each active filter is shown, with the number of matches.
+    expect(
+      screen.getByRole('button', { name: 'Remove filter Iqama: Valid' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Showing/, { selector: '.result-count' }).textContent,
+    ).toBe('Showing 1 of 4 employees');
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview PDF' }));
     const preview = within(
       screen.getByRole('dialog', { name: 'Preview employee PDF' }),
     );
     expect(preview.getByText('EMPLOYEE REPORT')).toBeInTheDocument();
-    expect(preview.getByText('Iqama status: Valid')).toBeInTheDocument();
+    expect(preview.getByText('Iqama: Valid')).toBeInTheDocument();
     const printTable = within(preview.getByRole('table'));
     expect(printTable.getByText('Valid Worker')).toBeInTheDocument();
     expect(printTable.queryByText('Expired Worker')).not.toBeInTheDocument();
     fireEvent.click(preview.getByRole('button', { name: 'Close preview' }));
 
-    fireEvent.change(status, { target: { value: '' } });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove filter Iqama: Valid' }),
+    );
     fireEvent.click(
       screen.getByRole('button', { name: /export employees as pdf/i }),
     );
@@ -1212,9 +1289,7 @@ describe('App', () => {
     const memory = await renderApp();
     const savePdf = jest.spyOn(memory.api.reports, 'savePdf');
     fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
-    fireEvent.change(screen.getByLabelText('Filter by payee'), {
-      target: { value: 'Pacific Building Supply' },
-    });
+    tickFilter('Paid to', 'Pacific Building Supply');
     const listed = within(screen.getByRole('table')).getAllByRole('row').length;
     fireEvent.click(screen.getByRole('button', { name: 'Preview PDF' }));
 
@@ -1388,6 +1463,7 @@ describe('App', () => {
 describe('App with the database', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     freezeToday();
   });
 
@@ -1577,6 +1653,7 @@ describe('App with the database', () => {
 describe('QA regressions', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     freezeToday();
   });
 

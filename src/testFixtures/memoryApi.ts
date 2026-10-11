@@ -1,6 +1,7 @@
 import { AppError } from '../shared/errors';
 import {
   AttachmentUpload,
+  AttendanceEntry,
   BackupFileInfo,
   BackupSettings,
   BudgetTransaction,
@@ -11,15 +12,32 @@ import {
   ExpenseInput,
   FinanceApi,
   FinanceSnapshot,
+  Payslip,
 } from '../shared/types';
 import {
+  calendarMonth,
   pastMonth,
+  recordId,
+  recordIds,
+  validateAttendanceDay,
+  validatePaidDate,
+  validatePayrollSettings,
+  validatePayslipInputs,
+  validateSalaryAdvanceInput,
+  validateSalaryAdvanceInputs,
   validateBudgetTransactionInput,
   validateEmployeeInput,
   validateExpenseInput,
   validateUploads,
 } from '../shared/validation';
 import { assertMonthsOpen, monthKey } from '../shared/months';
+import {
+  DEFAULT_PAYROLL_SETTINGS,
+  assertNoPayrollHistory,
+  netPay,
+  roundMoney,
+  takesAttendance,
+} from '../shared/payroll';
 import {
   DEFAULT_CATEGORIES,
   DEFAULT_DEPARTMENTS,
@@ -76,7 +94,10 @@ function toPayment(
  * An in-memory implementation of the database API with the same validation
  * and rules as the PostgreSQL one, for tests.
  */
-export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
+export default function createMemoryApi(
+  seed: Partial<FinanceSnapshot> & { attendance?: AttendanceEntry[] } = {},
+) {
+  let attendance: AttendanceEntry[] = [...(seed.attendance ?? [])];
   const state: FinanceSnapshot = {
     expenses: [...(seed.expenses ?? [])],
     budgetTransactions: [...(seed.budgetTransactions ?? [])],
@@ -84,7 +105,25 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
     departments: [...(seed.departments ?? DEFAULT_DEPARTMENTS)],
     employees: [...(seed.employees ?? [])],
     reopenedMonths: [...(seed.reopenedMonths ?? [])],
+    salaryAdvances: [...(seed.salaryAdvances ?? [])],
+    payslips: [...(seed.payslips ?? [])],
+    payrollSettings: { ...(seed.payrollSettings ?? DEFAULT_PAYROLL_SETTINGS) },
   };
+  const findEmployee = (id: string) => {
+    const employee = state.employees.find((item) => item.id === id);
+    if (!employee) {
+      throw new AppError(
+        'NOT_FOUND',
+        'An employee no longer exists. Refresh and try again.',
+      );
+    }
+    return employee;
+  };
+  const paidError = (payslip: Payslip) =>
+    new AppError(
+      'CONFLICT',
+      `${payslip.employeeName}'s payslip for ${payslip.month} is already paid. Mark it unpaid first to change it.`,
+    );
   const assertOpen = (...dates: string[]) =>
     assertMonthsOpen(dates, state.reopenedMonths);
   const files = new Map<string, AttachmentUpload>();
@@ -269,7 +308,180 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
         return saveEmployee(id, input);
       },
       remove: async (id) => {
+        const employee = findEmployee(id);
+        assertNoPayrollHistory(employee.name, {
+          attendance: attendance.some((entry) => entry.employeeId === id),
+          advances: state.salaryAdvances.some((item) => item.employeeId === id),
+          payslips: state.payslips.some((item) => item.employeeId === id),
+        });
         state.employees = state.employees.filter((item) => item.id !== id);
+      },
+    },
+    attendance: {
+      list: async (rawMonth) => {
+        const month = calendarMonth(rawMonth);
+        return clone(
+          attendance
+            .filter((entry) => entry.date.startsWith(month))
+            .sort((a, b) => a.date.localeCompare(b.date)),
+        );
+      },
+      saveDay: async (rawDate, rawRows) => {
+        const { date, rows } = validateAttendanceDay(rawDate, rawRows);
+        rows.forEach((row) => {
+          const employee = findEmployee(row.employeeId);
+          if (!takesAttendance(employee.role)) {
+            throw new AppError(
+              'VALIDATION',
+              `${employee.name} is staff, and staff have no attendance.`,
+            );
+          }
+        });
+        rows.forEach((row) => {
+          attendance = attendance.filter(
+            (entry) =>
+              !(entry.employeeId === row.employeeId && entry.date === date),
+          );
+          if (row.status) {
+            attendance.push({
+              employeeId: row.employeeId,
+              date,
+              status: row.status,
+              hours: row.hours,
+              note: row.note,
+            });
+          }
+        });
+        return clone(attendance.filter((entry) => entry.date === date));
+      },
+    },
+    salaryAdvances: {
+      create: async (rawInputs) => {
+        const inputs = validateSalaryAdvanceInputs(rawInputs);
+        inputs.forEach((input) => findEmployee(input.employeeId));
+        const saved = inputs.map((input) => ({
+          id: newId(),
+          ...input,
+          createdAt: Date.now(),
+        }));
+        state.salaryAdvances = [...saved, ...state.salaryAdvances];
+        return clone(saved);
+      },
+      update: async (rawId, rawInput) => {
+        const id = recordId(rawId);
+        const input = validateSalaryAdvanceInput(rawInput);
+        findEmployee(input.employeeId);
+        const previous = state.salaryAdvances.find((item) => item.id === id);
+        if (!previous) {
+          throw new AppError('NOT_FOUND', 'That advance no longer exists.');
+        }
+        const advance = { ...previous, ...input };
+        state.salaryAdvances = state.salaryAdvances.map((item) =>
+          item.id === id ? advance : item,
+        );
+        return clone(advance);
+      },
+      remove: async (rawId) => {
+        const id = recordId(rawId);
+        if (!state.salaryAdvances.some((item) => item.id === id)) {
+          throw new AppError('NOT_FOUND', 'That advance no longer exists.');
+        }
+        state.salaryAdvances = state.salaryAdvances.filter(
+          (item) => item.id !== id,
+        );
+      },
+    },
+    payslips: {
+      create: async (rawInputs) => {
+        const inputs = validatePayslipInputs(rawInputs);
+        const existing = state.payslips.find((item) =>
+          inputs.some(
+            (input) =>
+              input.employeeId === item.employeeId &&
+              input.month === item.month,
+          ),
+        );
+        if (existing) {
+          throw new AppError(
+            'CONFLICT',
+            `${existing.employeeName} already has a payslip for ${existing.month}, so nothing was created. Refresh to see it.`,
+          );
+        }
+        return api.payslips.save(inputs);
+      },
+      save: async (rawInputs) => {
+        const inputs = validatePayslipInputs(rawInputs);
+        // Check everything first, so a refused save changes nothing.
+        inputs.forEach((input) => {
+          findEmployee(input.employeeId);
+          const existing = state.payslips.find(
+            (item) =>
+              item.employeeId === input.employeeId &&
+              item.month === input.month,
+          );
+          if (existing?.status === 'paid') throw paidError(existing);
+        });
+        const saved = inputs.map((input) => {
+          const employee = findEmployee(input.employeeId);
+          const existing = state.payslips.find(
+            (item) =>
+              item.employeeId === input.employeeId &&
+              item.month === input.month,
+          );
+          const payslip: Payslip = {
+            ...input,
+            id: existing?.id ?? newId(),
+            employeeName: employee.name,
+            iqamaNo: employee.iqamaNo,
+            role: employee.role,
+            designation: employee.designation,
+            projectName: employee.projectName,
+            campName: employee.campName,
+            overtimePay: roundMoney(input.overtimeHours * input.overtimeRate),
+            netPay: netPay(input),
+            status: 'unpaid',
+            paidDate: '',
+          };
+          state.payslips = existing
+            ? state.payslips.map((item) =>
+                item.id === payslip.id ? payslip : item,
+              )
+            : [payslip, ...state.payslips];
+          return payslip;
+        });
+        return clone(saved);
+      },
+      setPaid: async (rawIds, rawPaidDate) => {
+        const ids = recordIds(rawIds);
+        const paidDate = validatePaidDate(rawPaidDate);
+        if (ids.some((id) => !state.payslips.some((item) => item.id === id))) {
+          throw new AppError(
+            'NOT_FOUND',
+            'A payslip no longer exists. Refresh and try again.',
+          );
+        }
+        state.payslips = state.payslips.map((item) => {
+          if (!ids.includes(item.id)) return item;
+          return paidDate
+            ? { ...item, status: 'paid', paidDate: item.paidDate || paidDate }
+            : { ...item, status: 'unpaid', paidDate: '' };
+        });
+        return clone(state.payslips.filter((item) => ids.includes(item.id)));
+      },
+      remove: async (rawId) => {
+        const id = recordId(rawId);
+        const payslip = state.payslips.find((item) => item.id === id);
+        if (!payslip) {
+          throw new AppError('NOT_FOUND', 'That payslip no longer exists.');
+        }
+        if (payslip.status === 'paid') throw paidError(payslip);
+        state.payslips = state.payslips.filter((item) => item.id !== id);
+      },
+    },
+    payroll: {
+      updateSettings: async (rawSettings) => {
+        state.payrollSettings = validatePayrollSettings(rawSettings);
+        return { ...state.payrollSettings };
       },
     },
     months: {
@@ -321,5 +533,9 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
     },
   };
 
-  return { api, snapshot: () => clone(state) };
+  return {
+    api,
+    snapshot: () => clone(state),
+    attendance: () => clone(attendance),
+  };
 }

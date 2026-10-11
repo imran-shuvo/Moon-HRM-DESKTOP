@@ -193,6 +193,128 @@ export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
       CREATE INDEX employees_role_idx ON employees (role);
     `,
   },
+  {
+    version: 7,
+    name: 'attendance and payroll',
+    sql: `
+      -- Hours beyond work_hours_per_day are overtime. Outsource workers are
+      -- paid hourly_rate per hour worked.
+      ALTER TABLE employees
+        ADD COLUMN work_hours_per_day NUMERIC(4, 2) NOT NULL DEFAULT 8
+          CHECK (work_hours_per_day > 0 AND work_hours_per_day <= 24),
+        ADD COLUMN hourly_rate NUMERIC(14, 2) CHECK (hourly_rate >= 0);
+
+      -- Payroll history is never deleted with an employee: every reference
+      -- is ON DELETE RESTRICT, and the app explains why a delete is refused.
+      CREATE TABLE attendance (
+        employee_id  UUID NOT NULL REFERENCES employees (id) ON DELETE RESTRICT,
+        work_date    DATE NOT NULL,
+        status       TEXT NOT NULL
+                     CHECK (status IN ('present', 'absent', 'leave', 'holiday')),
+        hours        NUMERIC(4, 2) NOT NULL DEFAULT 0
+                     CHECK (hours >= 0 AND hours <= 24),
+        note         TEXT NOT NULL DEFAULT '',
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (employee_id, work_date),
+        CHECK (status = 'present' OR hours = 0)
+      );
+      CREATE INDEX attendance_date_idx ON attendance (work_date);
+
+      CREATE TABLE salary_advances (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        employee_id   UUID NOT NULL REFERENCES employees (id) ON DELETE RESTRICT,
+        advance_date  DATE NOT NULL,
+        amount        NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
+        note          TEXT NOT NULL DEFAULT '',
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX salary_advances_employee_idx
+        ON salary_advances (employee_id, advance_date);
+
+      -- One payslip per employee per month. Amounts are stored as edited;
+      -- overtime and net pay are derived here so they always add up.
+      -- Employee details are copied so a payslip reads the same later.
+      CREATE TABLE payslips (
+        id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        employee_id        UUID NOT NULL REFERENCES employees (id) ON DELETE RESTRICT,
+        month              CHAR(7) NOT NULL
+                           CHECK (month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+        employee_name      TEXT NOT NULL,
+        iqama_no           TEXT NOT NULL,
+        role               TEXT NOT NULL,
+        designation        TEXT NOT NULL DEFAULT '',
+        project_name       TEXT NOT NULL DEFAULT '',
+        camp_name          TEXT NOT NULL DEFAULT '',
+        working_days       SMALLINT NOT NULL DEFAULT 0 CHECK (working_days BETWEEN 0 AND 31),
+        present_days       SMALLINT NOT NULL DEFAULT 0 CHECK (present_days BETWEEN 0 AND 31),
+        absent_days        SMALLINT NOT NULL DEFAULT 0 CHECK (absent_days BETWEEN 0 AND 31),
+        leave_days         SMALLINT NOT NULL DEFAULT 0 CHECK (leave_days BETWEEN 0 AND 31),
+        holiday_days       SMALLINT NOT NULL DEFAULT 0 CHECK (holiday_days BETWEEN 0 AND 31),
+        hours_worked       NUMERIC(6, 2) NOT NULL DEFAULT 0 CHECK (hours_worked >= 0),
+        basic_salary       NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (basic_salary >= 0),
+        hourly_rate        NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (hourly_rate >= 0),
+        basic_pay          NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (basic_pay >= 0),
+        overtime_hours     NUMERIC(6, 2) NOT NULL DEFAULT 0 CHECK (overtime_hours >= 0),
+        overtime_rate      NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (overtime_rate >= 0),
+        allowance          NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (allowance >= 0),
+        absence_deduction  NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (absence_deduction >= 0),
+        absence_fine       NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (absence_fine >= 0),
+        advance_deduction  NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (advance_deduction >= 0),
+        other_deduction    NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (other_deduction >= 0),
+        overtime_pay       NUMERIC(14, 2)
+                           GENERATED ALWAYS AS (round(overtime_hours * overtime_rate, 2)) STORED,
+        net_pay            NUMERIC(14, 2)
+                           GENERATED ALWAYS AS (
+                             basic_pay + round(overtime_hours * overtime_rate, 2)
+                             + allowance - absence_deduction - absence_fine
+                             - advance_deduction - other_deduction) STORED,
+        status             TEXT NOT NULL DEFAULT 'unpaid'
+                           CHECK (status IN ('unpaid', 'paid')),
+        paid_date          DATE,
+        note               TEXT NOT NULL DEFAULT '',
+        created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (employee_id, month),
+        CHECK ((status = 'paid') = (paid_date IS NOT NULL))
+      );
+      CREATE INDEX payslips_month_idx ON payslips (month);
+
+      -- A single row of payroll defaults.
+      CREATE TABLE payroll_settings (
+        id                      SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        overtime_base_rate      NUMERIC(14, 2) NOT NULL DEFAULT 20
+                                CHECK (overtime_base_rate >= 0),
+        overtime_multiplier     NUMERIC(6, 2) NOT NULL DEFAULT 1.5
+                                CHECK (overtime_multiplier >= 0),
+        absence_fine            NUMERIC(14, 2) NOT NULL DEFAULT 20
+                                CHECK (absence_fine >= 0),
+        absence_fine_free_days  SMALLINT NOT NULL DEFAULT 1
+                                CHECK (absence_fine_free_days BETWEEN 0 AND 31),
+        updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      INSERT INTO payroll_settings DEFAULT VALUES;
+    `,
+  },
+  {
+    version: 8,
+    name: 'vacation and paid leave',
+    sql: `
+      ALTER TABLE attendance DROP CONSTRAINT attendance_status_check;
+      ALTER TABLE attendance ADD CONSTRAINT attendance_status_check
+        CHECK (status IN ('present', 'absent', 'leave', 'vacation', 'holiday'));
+
+      ALTER TABLE payslips
+        ADD COLUMN vacation_days SMALLINT NOT NULL DEFAULT 0
+          CHECK (vacation_days BETWEEN 0 AND 31);
+
+      -- Leave is unpaid and vacation paid unless changed here.
+      ALTER TABLE payroll_settings
+        ADD COLUMN leave_paid BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN vacation_paid BOOLEAN NOT NULL DEFAULT true;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

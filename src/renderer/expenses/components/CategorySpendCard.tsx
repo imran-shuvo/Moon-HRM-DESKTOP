@@ -1,4 +1,10 @@
-import { Budget, Expense, formatCurrency, getExpenseTotal } from '../model';
+import {
+  Budget,
+  Expense,
+  formatAmount,
+  formatCurrency,
+  getExpenseTotal,
+} from '../model';
 
 export default function CategorySpendCard({
   budgets,
@@ -49,7 +55,7 @@ export default function CategorySpendCard({
               <i style={{ background: category.color }} />
               {category.category}
             </span>
-            <strong>{formatCurrency(category.spent)}</strong>
+            <strong>{formatAmount(category.spent)}</strong>
           </div>
         ))}
       </div>

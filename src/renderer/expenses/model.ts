@@ -5,6 +5,8 @@ export type Section =
   | 'Transactions'
   | 'Budgets'
   | 'Employees'
+  | 'Attendance'
+  | 'Payroll'
   | 'Reports'
   | 'Settings'
   | 'Backup';
@@ -15,11 +17,33 @@ export {
 } from '../../shared/employeeRoles';
 export type { EmployeeRole } from '../../shared/employeeRoles';
 export type {
+  AttendanceEntry,
+  AttendanceStatus,
   BudgetTransaction,
   Employee,
   Expense,
   ExpenseAttachment,
+  PayrollSettings,
+  Payslip,
+  SalaryAdvance,
 } from '../../shared/types';
+
+/** Labels for a filter whose options are the values themselves. */
+export function selfLabels(values: readonly string[]): Record<string, string> {
+  return Object.fromEntries(values.map((value) => [value, value]));
+}
+
+/** Distinct non-empty values, sorted, for filter options. */
+export function distinctValues(values: string[]) {
+  return [...new Set(values)]
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/** Whether `value` passes a multi-select filter (nothing ticked = all). */
+export function matchesAny(selected: string[], value: string) {
+  return selected.length === 0 || selected.includes(value);
+}
 
 export type Budget = {
   category: string;
@@ -193,6 +217,15 @@ export function plural(count: number, singular: string) {
   return `${count} ${count === 1 ? singular : `${singular}s`}`;
 }
 
+/** One amount among many, without the currency; totals use formatCurrency. */
+export function formatAmount(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+/** Totals and balances, with the currency, e.g. 'SAR 1,250.00'. */
 export function formatCurrency(value: number) {
   return new Intl.NumberFormat('en-SA', {
     style: 'currency',

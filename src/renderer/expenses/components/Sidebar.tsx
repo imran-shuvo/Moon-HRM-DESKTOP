@@ -1,14 +1,34 @@
 import moonLogo from '../../../../assets/moon-logo.png';
 import { formatCurrency, Section } from '../model';
 
-const NAVIGATION: { label: Section; icon: string }[] = [
-  { label: 'Overview', icon: '◫' },
-  { label: 'Transactions', icon: '↕' },
-  { label: 'Budgets', icon: '▥' },
-  { label: 'Employees', icon: '☺' },
-  { label: 'Reports', icon: '▤' },
-  { label: 'Settings', icon: '⚙' },
-  { label: 'Backup', icon: '⛁' },
+const NAVIGATION: {
+  heading: string;
+  items: { label: Section; icon: string }[];
+}[] = [
+  {
+    heading: 'FINANCE',
+    items: [
+      { label: 'Overview', icon: '◫' },
+      { label: 'Transactions', icon: '↕' },
+      { label: 'Budgets', icon: '▥' },
+      { label: 'Reports', icon: '▤' },
+    ],
+  },
+  {
+    heading: 'PEOPLE',
+    items: [
+      { label: 'Employees', icon: '☺' },
+      { label: 'Attendance', icon: '✓' },
+      { label: 'Payroll', icon: '¤' },
+    ],
+  },
+  {
+    heading: 'SYSTEM',
+    items: [
+      { label: 'Settings', icon: '⚙' },
+      { label: 'Backup', icon: '⛁' },
+    ],
+  },
 ];
 
 export default function Sidebar({
@@ -16,12 +36,14 @@ export default function Sidebar({
   onSelect,
   budget,
   transactionCount,
+  unpaidPayslipCount,
   expiringIqamaCount,
 }: {
   section: Section;
   onSelect: (section: Section) => void;
   budget: number;
   transactionCount: number;
+  unpaidPayslipCount: number;
   /** Employees whose Iqama expires soon or has expired. */
   expiringIqamaCount: number;
 }) {
@@ -34,32 +56,41 @@ export default function Sidebar({
           src={moonLogo}
         />
       </div>
-      <div className="workspace-label">WORKSPACE</div>
       <nav aria-label="Main navigation">
-        {NAVIGATION.map((item) => (
-          <button
-            aria-current={section === item.label ? 'page' : undefined}
-            className={`nav-item${section === item.label ? ' active' : ''}`}
-            key={item.label}
-            onClick={() => onSelect(item.label)}
-            type="button"
-          >
-            <span className="nav-icon" aria-hidden="true">
-              {item.icon}
-            </span>
-            {item.label}
-            {item.label === 'Transactions' && (
-              <span className="nav-count">{transactionCount}</span>
-            )}
-            {item.label === 'Employees' && expiringIqamaCount > 0 && (
-              <span
-                className="nav-count nav-count-alert"
-                title="Iqamas expiring within 30 days or expired"
+        {NAVIGATION.map((group) => (
+          <div className="nav-group" key={group.heading}>
+            <div className="workspace-label">{group.heading}</div>
+            {group.items.map((item) => (
+              <button
+                aria-current={section === item.label ? 'page' : undefined}
+                className={`nav-item${section === item.label ? ' active' : ''}`}
+                key={item.label}
+                onClick={() => onSelect(item.label)}
+                type="button"
               >
-                {expiringIqamaCount}
-              </span>
-            )}
-          </button>
+                <span className="nav-icon" aria-hidden="true">
+                  {item.icon}
+                </span>
+                {item.label}
+                {item.label === 'Transactions' && (
+                  <span className="nav-count">{transactionCount}</span>
+                )}
+                {item.label === 'Employees' && expiringIqamaCount > 0 && (
+                  <span
+                    className="nav-count nav-count-alert"
+                    title="Iqamas expiring within 30 days or expired"
+                  >
+                    {expiringIqamaCount}
+                  </span>
+                )}
+                {item.label === 'Payroll' && unpaidPayslipCount > 0 && (
+                  <span className="nav-count" title="Unpaid payslips">
+                    {unpaidPayslipCount}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         ))}
       </nav>
       <div className="sidebar-bottom">

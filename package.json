@@ -93,6 +93,7 @@
   },
   "dependencies": {
     "@electron/notarize": "^2.3.2",
+    "@fontsource-variable/inter": "5.2.5",
     "electron-debug": "^3.2.0",
     "electron-log": "^4.4.8",
     "pg": "^8.23.1",

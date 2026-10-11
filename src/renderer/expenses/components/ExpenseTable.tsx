@@ -1,4 +1,4 @@
-import { Expense, formatCurrency, getExpenseTotal } from '../model';
+import { Expense, formatAmount, getExpenseTotal } from '../model';
 
 function formatDate(value: string) {
   const date = new Date(`${value}T12:00:00`);
@@ -54,7 +54,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
               <td className="department-cell">{expense.department}</td>
               <td className="payment-cell">{expense.paymentMethod}</td>
               <td className="amount-cell">
-                {formatCurrency(getExpenseTotal(expense))}
+                {formatAmount(getExpenseTotal(expense))}
               </td>
             </tr>
           ))}

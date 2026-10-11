@@ -1,5 +1,6 @@
 import {
   Expense,
+  formatAmount,
   formatCurrency,
   formatReportDate,
   getExpenseTotal,
@@ -85,7 +86,7 @@ export default function SpendChart({
               <div
                 className="bar-column"
                 key={day.key}
-                title={`${day.label}: ${formatCurrency(day.amount)}`}
+                title={`${day.label}: ${formatAmount(day.amount)}`}
               >
                 <span
                   className={`chart-bar${day.key === today ? ' today' : ''}`}

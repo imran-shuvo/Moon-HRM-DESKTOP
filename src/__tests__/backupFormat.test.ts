@@ -86,7 +86,117 @@ describe('backup file format', () => {
       categories: 1,
       departments: 1,
       employees: 0,
+      attendance: 0,
+      salaryAdvances: 0,
+      payslips: 0,
     });
+  });
+
+  it('keeps attendance, advances, payslips and payroll settings', () => {
+    const employeeId = '33333333-3333-4333-8333-333333333333';
+    const withPayroll: BackupData = {
+      ...sampleData(),
+      employees: [
+        {
+          id: employeeId,
+          name: 'Karim',
+          iqamaNo: '2400000001',
+          role: 'company_worker',
+          designation: '',
+          projectName: 'Mall',
+          phoneNo: '',
+          insuranceNo: '',
+          iqamaExpiry: null,
+          campName: 'Camp A',
+          createdAt,
+          updatedAt: createdAt,
+          nickname: '',
+          salary: 1500,
+          workHoursPerDay: 10,
+          hourlyRate: null,
+        },
+      ],
+      attendance: [
+        {
+          employeeId,
+          workDate: '2026-10-01',
+          status: 'present',
+          hours: 12,
+          note: '',
+          createdAt,
+          updatedAt: createdAt,
+        },
+      ],
+      salaryAdvances: [
+        {
+          id: '44444444-4444-4444-8444-444444444444',
+          employeeId,
+          advanceDate: '2026-10-05',
+          amount: 300,
+          note: 'Eid',
+          createdAt,
+          updatedAt: createdAt,
+        },
+      ],
+      payslips: [
+        {
+          id: '55555555-5555-4555-8555-555555555555',
+          employeeId,
+          month: '2026-10',
+          employeeName: 'Karim',
+          iqamaNo: '2400000001',
+          role: 'company_worker',
+          designation: '',
+          projectName: 'Mall',
+          campName: 'Camp A',
+          workingDays: 27,
+          presentDays: 26,
+          absentDays: 1,
+          leaveDays: 0,
+          holidayDays: 0,
+          hoursWorked: 262,
+          basicSalary: 1500,
+          hourlyRate: 0,
+          basicPay: 1500,
+          overtimeHours: 2,
+          overtimeRate: 30,
+          allowance: 0,
+          absenceDeduction: 55.56,
+          absenceFine: 0,
+          advanceDeduction: 300,
+          otherDeduction: 0,
+          status: 'paid',
+          paidDate: '2026-11-01',
+          note: '',
+          createdAt,
+          updatedAt: createdAt,
+        },
+      ],
+      payrollSettings: {
+        overtimeBaseRate: 20,
+        overtimeMultiplier: 1.5,
+        absenceFine: 25,
+        absenceFineFreeDays: 2,
+      },
+    };
+    const parsed = parseBackup(
+      serializeBackup(buildBackupDocument(withPayroll, meta)),
+    );
+    expect(parsed.data).toEqual(withPayroll);
+    expect(parsed.counts).toEqual(
+      expect.objectContaining({
+        attendance: 1,
+        salaryAdvances: 1,
+        payslips: 1,
+      }),
+    );
+
+    // Payroll records must belong to an employee in the same backup.
+    const orphan = { ...withPayroll, employees: [] };
+    const document = buildBackupDocument(orphan, meta);
+    expect(() => parseBackup(serializeBackup(document))).toThrow(
+      /belongs to a missing employee/,
+    );
   });
 
   it('keeps employees, and still reads backups made before them', () => {

@@ -3,52 +3,115 @@ import {
   Expense,
   bySerialNo,
   describeReportFilters,
+  distinctValues,
   fileTimestamp,
+  inDateRange,
+  matchesAny,
+  matchesSearch,
+  selfLabels,
 } from '../model';
 import ExpenseListTable from './ExpenseListTable';
 import ExpensePrintableReport, {
   PrintableExpenseReportData,
 } from './ExpensePrintableReport';
 import ExportPreviewDialog from './ExportPreviewDialog';
+import FilterBar, {
+  DateRangeFilter,
+  dateChip,
+  multiChips,
+  searchChip,
+  useSessionState,
+} from './FilterBar';
+import MultiSelectFilter, { countBy } from './MultiSelectFilter';
+
+type Filters = {
+  search: string;
+  from: string;
+  to: string;
+  payees: string[];
+  categories: string[];
+  departments: string[];
+  methods: string[];
+};
+
+const NO_FILTERS: Filters = {
+  search: '',
+  from: '',
+  to: '',
+  payees: [],
+  categories: [],
+  departments: [],
+  methods: [],
+};
 
 export default function TransactionPanel({
   expenses,
-  fromDate,
-  toDate,
-  payee,
-  search,
   payees,
-  onFromDateChange,
-  onToDateChange,
-  onPayeeChange,
-  onSearchChange,
   onSelect,
   onExportPdf,
 }: {
+  /** Every expense; this panel filters them. */
   expenses: Expense[];
-  fromDate: string;
-  toDate: string;
-  payee: string;
-  search: string;
+  /** Employee names and names already on expenses. */
   payees: string[];
-  onFromDateChange: (value: string) => void;
-  onToDateChange: (value: string) => void;
-  onPayeeChange: (value: string) => void;
-  onSearchChange: (value: string) => void;
   onSelect: (expense: Expense) => void;
   onExportPdf: (data: PrintableExpenseReportData) => void;
 }) {
+  const [filters, setFilters] = useSessionState('transactions', NO_FILTERS);
   const [previewData, setPreviewData] = useState<PrintableExpenseReportData>();
-  const invalidRange = Boolean(fromDate && toDate && fromDate > toDate);
+  const set = (change: Partial<Filters>) =>
+    setFilters((current) => ({ ...current, ...change }));
+  const invalidRange = Boolean(
+    filters.from && filters.to && filters.from > filters.to,
+  );
+  const options = {
+    categories: distinctValues(expenses.map((expense) => expense.category)),
+    departments: distinctValues(expenses.map((expense) => expense.department)),
+    methods: distinctValues(expenses.map((expense) => expense.paymentMethod)),
+  };
+  const shown = expenses.filter(
+    (expense) =>
+      inDateRange(expense.date, filters.from, filters.to) &&
+      matchesAny(filters.payees, expense.payee) &&
+      matchesAny(filters.categories, expense.category) &&
+      matchesAny(filters.departments, expense.department) &&
+      matchesAny(filters.methods, expense.paymentMethod) &&
+      matchesSearch(expense, filters.search),
+  );
+  const chips = [
+    ...searchChip(filters.search, (search) => set({ search })),
+    ...dateChip(filters, (range) => set(range)),
+    ...multiChips('Paid to', filters.payees, selfLabels(payees), (v) =>
+      set({ payees: v }),
+    ),
+    ...multiChips(
+      'Type',
+      filters.categories,
+      selfLabels(options.categories),
+      (v) => set({ categories: v }),
+    ),
+    ...multiChips(
+      'Department',
+      filters.departments,
+      selfLabels(options.departments),
+      (v) => set({ departments: v }),
+    ),
+    ...multiChips('Method', filters.methods, selfLabels(options.methods), (v) =>
+      set({ methods: v }),
+    ),
+  ];
 
   /** The PDF contains exactly the expenses listed under these filters. */
   function createReportData(): PrintableExpenseReportData {
     const generatedAt = new Date();
     return {
-      expenses: [...expenses].sort(bySerialNo),
-      filterSummary: describeReportFilters(fromDate, toDate, [
-        ['Paid to', payee || 'All'],
-        ['Search', search.trim() && `"${search.trim()}"`],
+      expenses: [...shown].sort(bySerialNo),
+      filterSummary: describeReportFilters(filters.from, filters.to, [
+        ['Paid to', filters.payees.join(', ') || 'All'],
+        ['Type', filters.categories.join(', ')],
+        ['Department', filters.departments.join(', ')],
+        ['Payment method', filters.methods.join(', ')],
+        ['Search', filters.search.trim() && `"${filters.search.trim()}"`],
       ]),
       fileName: `expense-transactions_${fileTimestamp(generatedAt)}`,
       generatedAt,
@@ -60,74 +123,9 @@ export default function TransactionPanel({
       <div className="panel-heading transaction-heading">
         <div>
           <h2>All expenses</h2>
-          <p>{expenses.length} expense transactions match these filters</p>
+          <p>Search, filter, then click an expense to see or edit it.</p>
         </div>
-        <div className="transaction-filters">
-          <label className="filter-control" htmlFor="transaction-from">
-            From
-            <input
-              aria-label="Filter expenses from date"
-              id="transaction-from"
-              type="date"
-              value={fromDate}
-              onChange={(event) => onFromDateChange(event.currentTarget.value)}
-            />
-          </label>
-          <label className="filter-control" htmlFor="transaction-to">
-            To
-            <input
-              aria-label="Filter expenses to date"
-              id="transaction-to"
-              type="date"
-              value={toDate}
-              onChange={(event) => onToDateChange(event.currentTarget.value)}
-            />
-          </label>
-          {(fromDate || toDate) && (
-            <button
-              aria-label="Clear date filter"
-              className="button button-secondary clear-filter"
-              onClick={() => {
-                onFromDateChange('');
-                onToDateChange('');
-              }}
-              type="button"
-            >
-              Clear dates
-            </button>
-          )}
-          <label className="filter-control" htmlFor="transaction-payee">
-            Paid to
-            <select
-              aria-label="Filter by payee"
-              id="transaction-payee"
-              value={payee}
-              onChange={(event) => onPayeeChange(event.currentTarget.value)}
-            >
-              <option value="">All payees</option>
-              {payees.map((name) => (
-                <option key={name}>{name}</option>
-              ))}
-            </select>
-          </label>
-          <label className="search-box" htmlFor="transaction-search">
-            <span aria-hidden="true">⌕</span>
-            <input
-              aria-label="Search transactions"
-              id="transaction-search"
-              value={search}
-              onChange={(event) => onSearchChange(event.currentTarget.value)}
-              placeholder="Search expenses"
-            />
-          </label>
-          <button
-            className="button button-secondary"
-            disabled={invalidRange}
-            onClick={() => onExportPdf(createReportData())}
-            type="button"
-          >
-            ↓ Export expenses as PDF
-          </button>
+        <div className="heading-actions">
           <button
             className="button button-secondary"
             disabled={invalidRange}
@@ -136,16 +134,100 @@ export default function TransactionPanel({
           >
             Preview PDF
           </button>
+          <button
+            className="button button-secondary"
+            disabled={invalidRange}
+            onClick={() => onExportPdf(createReportData())}
+            type="button"
+          >
+            ↓ Export expenses as PDF
+          </button>
         </div>
       </div>
+      <FilterBar
+        searchId="transaction-search"
+        searchLabel="Search transactions"
+        searchPlaceholder="Search payee, invoice, particulars, project…"
+        search={filters.search}
+        onSearchChange={(search) => set({ search })}
+        chips={chips}
+        shown={shown.length}
+        total={expenses.length}
+        noun="expenses"
+        onClearAll={() => setFilters(NO_FILTERS)}
+      >
+        <DateRangeFilter
+          id="transaction-dates"
+          label="Date"
+          fromLabel="Filter expenses from date"
+          toLabel="Filter expenses to date"
+          value={filters}
+          onChange={(range) => set(range)}
+        />
+        <MultiSelectFilter
+          id="transaction-payee"
+          label="Paid to"
+          allLabel="All payees"
+          options={payees}
+          labels={selfLabels(payees)}
+          counts={countBy(expenses, (expense) => expense.payee)}
+          selected={filters.payees}
+          onChange={(v) => set({ payees: v })}
+        />
+        <MultiSelectFilter
+          id="transaction-category"
+          label="Type"
+          allLabel="All types"
+          options={options.categories}
+          labels={selfLabels(options.categories)}
+          counts={countBy(expenses, (expense) => expense.category)}
+          selected={filters.categories}
+          onChange={(v) => set({ categories: v })}
+        />
+        <MultiSelectFilter
+          id="transaction-department"
+          label="Department"
+          allLabel="All departments"
+          options={options.departments}
+          labels={selfLabels(options.departments)}
+          counts={countBy(expenses, (expense) => expense.department)}
+          selected={filters.departments}
+          onChange={(v) => set({ departments: v })}
+        />
+        <MultiSelectFilter
+          id="transaction-method"
+          label="Payment method"
+          allLabel="All methods"
+          options={options.methods}
+          labels={selfLabels(options.methods)}
+          counts={countBy(expenses, (expense) => expense.paymentMethod)}
+          selected={filters.methods}
+          onChange={(v) => set({ methods: v })}
+        />
+      </FilterBar>
       {invalidRange && (
         <p className="form-error transaction-filter-error" role="alert">
           The From date must be on or before the To date.
         </p>
       )}
-      <ExpenseListTable expenses={expenses} onSelect={onSelect} />
-      {expenses.length === 0 && (
-        <p className="empty-state">No expenses match these filters.</p>
+      <ExpenseListTable expenses={shown} onSelect={onSelect} />
+      {shown.length === 0 && (
+        <div className="empty-state empty-action">
+          <p>
+            {expenses.length === 0
+              ? 'No expenses yet.'
+              : 'No expenses match these filters.'}
+          </p>
+          {chips.length > 0 && (
+            <button
+              className="button button-secondary"
+              onClick={() => setFilters(NO_FILTERS)}
+              type="button"
+            >
+              Show all expenses
+            </button>
+          )}
+        </div>
       )}
       {previewData && (
         <ExportPreviewDialog

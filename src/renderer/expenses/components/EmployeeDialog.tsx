@@ -1,4 +1,5 @@
 import { FormEvent, useState } from 'react';
+import { DEFAULT_WORK_HOURS_PER_DAY } from '../../../shared/payroll';
 import { EmployeeInput } from '../../../shared/types';
 import { errorMessage } from '../../data/FinanceApiContext';
 import {
@@ -22,7 +23,24 @@ const FIELDS: {
   { key: 'projectName', label: 'Project name', maxLength: 120 },
   { key: 'phoneNo', label: 'Phone no.', maxLength: 30, type: 'tel' },
   { key: 'insuranceNo', label: 'Insurance no.', maxLength: 60 },
-  { key: 'salary', label: 'Salary (SAR)', maxLength: 15, type: 'number' },
+  {
+    key: 'salary',
+    label: 'Basic salary (SAR / month)',
+    maxLength: 15,
+    type: 'number',
+  },
+  {
+    key: 'hourlyRate',
+    label: 'Rate per hour (SAR, outsource)',
+    maxLength: 15,
+    type: 'number',
+  },
+  {
+    key: 'workHoursPerDay',
+    label: 'Basic hours a day',
+    maxLength: 5,
+    type: 'number',
+  },
   {
     key: 'iqamaExpiry',
     label: 'Iqama expiry date',
@@ -56,6 +74,16 @@ export default function EmployeeDialog({
       setError('Enter a salary of zero or more, or leave it empty.');
       return;
     }
+    const hourlyRate = value('hourlyRate');
+    if (hourlyRate && !(Number(hourlyRate) >= 0)) {
+      setError('Enter a rate per hour of zero or more, or leave it empty.');
+      return;
+    }
+    const workHours = value('workHoursPerDay');
+    if (workHours && !(Number(workHours) >= 1 && Number(workHours) <= 24)) {
+      setError('Basic hours a day must be between 1 and 24.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -64,6 +92,10 @@ export default function EmployeeDialog({
         nickname: value('nickname'),
         role: value('role') as EmployeeRole,
         salary: salary ? Number(salary) : null,
+        hourlyRate: hourlyRate ? Number(hourlyRate) : null,
+        workHoursPerDay: workHours
+          ? Number(workHours)
+          : DEFAULT_WORK_HOURS_PER_DAY,
         iqamaNo: value('iqamaNo'),
         designation: value('designation'),
         projectName: value('projectName'),
@@ -138,7 +170,12 @@ export default function EmployeeDialog({
               >
                 {field.label}
                 <input
-                  defaultValue={employee?.[field.key] ?? ''}
+                  defaultValue={
+                    employee?.[field.key] ??
+                    (field.key === 'workHoursPerDay'
+                      ? DEFAULT_WORK_HOURS_PER_DAY
+                      : '')
+                  }
                   id={`employee-${field.key}`}
                   maxLength={field.maxLength}
                   min={field.type === 'number' ? 0 : undefined}

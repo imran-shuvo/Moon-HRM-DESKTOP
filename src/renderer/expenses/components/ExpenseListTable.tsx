@@ -1,4 +1,10 @@
-import { Expense, bySerialNo, formatCurrency, getExpenseTotal } from '../model';
+import {
+  Expense,
+  bySerialNo,
+  formatAmount,
+  formatCurrency,
+  getExpenseTotal,
+} from '../model';
 
 function formatDate(value: string) {
   return new Date(`${value}T12:00:00`).toLocaleDateString(undefined, {
@@ -53,7 +59,7 @@ export default function ExpenseListTable({
                 {expense.particulars || expense.description || '—'}
               </td>
               <td className="amount-cell">
-                {formatCurrency(getExpenseTotal(expense))}
+                {formatAmount(getExpenseTotal(expense))}
               </td>
             </tr>
           ))}

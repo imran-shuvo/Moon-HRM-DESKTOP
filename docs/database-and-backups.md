@@ -47,7 +47,10 @@ browser-storage key `moon-expenses-v1-imported`.
 ## 3. Backups
 
 A backup is a single `.mfbackup` file. It is gzip-compressed JSON with a
-SHA-256 checksum, and it contains every record **and the receipt files**. It
+SHA-256 checksum, and it contains every record **and the receipt files**,
+including attendance, salary advances, payslips and the payroll settings.
+Backups made before payroll existed still restore; they restore with no
+attendance or payslips and the default payroll settings. It
 does not depend on `pg_dump` or on the PostgreSQL version, so you can restore it
 onto a new server.
 
@@ -70,7 +73,8 @@ read back and verified. A crash never leaves a half-written backup.
 `.mfbackup` file:
 
 1. The file is opened and fully checked: format, version, checksum, and that
-   every expense's type, department and receipt references are consistent.
+   every expense's type, department and receipt references, and every
+   attendance record, advance and payslip's employee, are consistent.
    A damaged or edited file is rejected before anything changes.
 2. You see what the backup contains and must confirm.
 3. A *before restore* backup of the current data is written.
@@ -98,5 +102,13 @@ between app backups.
   so it always equals excluding-VAT plus VAT.
 - Renaming a type or department cascades to its expenses. Deleting one that is
   still in use is refused by a foreign key.
+- Payroll rules live in one place, `src/shared/payroll.ts`, and are used by
+  the UI and the tests. Payslip amounts are stored as edited; overtime pay and
+  net pay are generated columns, and the app's `netPay()` rounds the same way
+  (halves away from zero, to the halala).
+- Attendance, advances and payslips reference employees with
+  `ON DELETE RESTRICT`. A paid payslip cannot be changed or deleted until it
+  is marked unpaid. Saving several payslips is one transaction: if one is
+  refused, none are saved.
 - UI tests run against `src/testFixtures/memoryApi.ts`, an in-memory
   implementation of the same API with the same validation.

@@ -6,12 +6,41 @@ import {
   fileTimestamp,
   formatCurrency,
   inDateRange,
+  matchesAny,
+  selfLabels,
 } from '../model';
 import BudgetPaymentsTable from './BudgetPaymentsTable';
 import BudgetPrintableReport, {
   PrintableBudgetReportData,
 } from './BudgetPrintableReport';
 import ExportPreviewDialog from './ExportPreviewDialog';
+import FilterBar, {
+  DateRangeFilter,
+  dateChip,
+  multiChips,
+  searchChip,
+  useSessionState,
+} from './FilterBar';
+import MultiSelectFilter, { countBy } from './MultiSelectFilter';
+
+type Filters = {
+  search: string;
+  from: string;
+  to: string;
+  payers: string[];
+  methods: string[];
+};
+
+const NO_FILTERS: Filters = {
+  search: '',
+  from: '',
+  to: '',
+  payers: [],
+  methods: [],
+};
+
+const METHODS = ['Cash', 'Card'];
+const METHOD_LABELS: Record<string, string> = { Cash: 'Cash', Card: 'Card' };
 
 export default function BudgetManagementPanel({
   payments,
@@ -31,10 +60,10 @@ export default function BudgetManagementPanel({
   onDeletePayment: (payment: BudgetTransaction) => void;
   onExportPdf: (data: PrintableBudgetReportData) => void;
 }) {
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
-  const [paidBy, setPaidBy] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('');
+  const [filters, setFilters] = useSessionState('budgets', NO_FILTERS);
+  const set = (change: Partial<Filters>) =>
+    setFilters((current) => ({ ...current, ...change }));
+  const { from: fromDate, to: toDate } = filters;
   const [previewData, setPreviewData] = useState<PrintableBudgetReportData>();
   const payers = useMemo(
     () =>
@@ -46,16 +75,30 @@ export default function BudgetManagementPanel({
       ].sort((a, b) => a.localeCompare(b)),
     [savedPayers, payments],
   );
-  const filteredPayments = useMemo(
-    () =>
-      payments.filter(
-        (payment) =>
-          inDateRange(payment.date, fromDate, toDate) &&
-          (!paidBy || (payment.paidBy || 'Company') === paidBy) &&
-          (!paymentMethod || payment.paymentMethod === paymentMethod),
-      ),
-    [payments, fromDate, toDate, paidBy, paymentMethod],
+  const needle = filters.search.trim().toLowerCase();
+  const filteredPayments = payments.filter(
+    (payment) =>
+      inDateRange(payment.date, fromDate, toDate) &&
+      matchesAny(filters.payers, payment.paidBy || 'Company') &&
+      matchesAny(filters.methods, payment.paymentMethod ?? '') &&
+      (!needle ||
+        [
+          payment.paidBy,
+          payment.note,
+          payment.date,
+          String(payment.amount),
+        ].some((value) => value?.toLowerCase().includes(needle))),
   );
+  const chips = [
+    ...searchChip(filters.search, (search) => set({ search })),
+    ...dateChip(filters, (range) => set(range)),
+    ...multiChips('Payee', filters.payers, selfLabels(payers), (v) =>
+      set({ payers: v }),
+    ),
+    ...multiChips('Method', filters.methods, METHOD_LABELS, (v) =>
+      set({ methods: v }),
+    ),
+  ];
   const invalidRange = Boolean(fromDate && toDate && fromDate > toDate);
   const received = filteredPayments.reduce(
     (total, payment) => total + payment.amount,
@@ -68,8 +111,9 @@ export default function BudgetManagementPanel({
     return {
       payments: [...filteredPayments].sort(bySerialNo),
       filterSummary: describeReportFilters(fromDate, toDate, [
-        ['Payee', paidBy || 'All'],
-        ['Method', paymentMethod],
+        ['Payee', filters.payers.join(', ') || 'All'],
+        ['Method', filters.methods.join(', ')],
+        ['Search', filters.search.trim() && `"${filters.search.trim()}"`],
       ]),
       fileName: `budget-transactions_${fileTimestamp(generatedAt)}`,
       generatedAt,
@@ -101,77 +145,7 @@ export default function BudgetManagementPanel({
             <h2>All budgets received</h2>
             <p>Date, payer, payment method, and amount for each budget.</p>
           </div>
-          <div className="transaction-filters">
-            <label className="filter-control" htmlFor="budget-from-filter">
-              From
-              <input
-                aria-label="Filter budgets from date"
-                id="budget-from-filter"
-                type="date"
-                value={fromDate}
-                onChange={(event) => setFromDate(event.currentTarget.value)}
-              />
-            </label>
-            <label className="filter-control" htmlFor="budget-to-filter">
-              To
-              <input
-                aria-label="Filter budgets to date"
-                id="budget-to-filter"
-                type="date"
-                value={toDate}
-                onChange={(event) => setToDate(event.currentTarget.value)}
-              />
-            </label>
-            {(fromDate || toDate) && (
-              <button
-                aria-label="Clear budget date filter"
-                className="button button-secondary clear-filter"
-                onClick={() => {
-                  setFromDate('');
-                  setToDate('');
-                }}
-                type="button"
-              >
-                Clear dates
-              </button>
-            )}
-            <label className="filter-control" htmlFor="budget-payer-filter">
-              Payee
-              <select
-                aria-label="Filter budgets by payer"
-                id="budget-payer-filter"
-                value={paidBy}
-                onChange={(event) => setPaidBy(event.currentTarget.value)}
-              >
-                <option value="">All payees</option>
-                {payers.map((name) => (
-                  <option key={name}>{name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="filter-control" htmlFor="budget-method-filter">
-              Method
-              <select
-                aria-label="Filter budgets by payment method"
-                id="budget-method-filter"
-                value={paymentMethod}
-                onChange={(event) =>
-                  setPaymentMethod(event.currentTarget.value)
-                }
-              >
-                <option value="">Cash or card</option>
-                <option value="Cash">Cash</option>
-                <option value="Card">Card</option>
-              </select>
-            </label>
-            <button
-              className="button button-secondary"
-              disabled={invalidRange}
-              onClick={() => onExportPdf(createBudgetReportData())}
-              type="button"
-            >
-              ↓ Export budgets as PDF
-            </button>
+          <div className="heading-actions">
             <button
               className="button button-secondary"
               disabled={invalidRange}
@@ -180,8 +154,57 @@ export default function BudgetManagementPanel({
             >
               Preview PDF
             </button>
+            <button
+              className="button button-secondary"
+              disabled={invalidRange}
+              onClick={() => onExportPdf(createBudgetReportData())}
+              type="button"
+            >
+              ↓ Export budgets as PDF
+            </button>
           </div>
         </div>
+        <FilterBar
+          searchId="budget-search"
+          searchLabel="Search budgets"
+          searchPlaceholder="Search payee, note or amount…"
+          search={filters.search}
+          onSearchChange={(search) => set({ search })}
+          chips={chips}
+          shown={filteredPayments.length}
+          total={payments.length}
+          noun="budgets"
+          onClearAll={() => setFilters(NO_FILTERS)}
+        >
+          <DateRangeFilter
+            id="budget-dates"
+            label="Date"
+            fromLabel="Filter budgets from date"
+            toLabel="Filter budgets to date"
+            value={filters}
+            onChange={(range) => set(range)}
+          />
+          <MultiSelectFilter
+            id="budget-payer-filter"
+            label="Payee"
+            allLabel="All payees"
+            options={payers}
+            labels={selfLabels(payers)}
+            counts={countBy(payments, (payment) => payment.paidBy || 'Company')}
+            selected={filters.payers}
+            onChange={(v) => set({ payers: v })}
+          />
+          <MultiSelectFilter
+            id="budget-method-filter"
+            label="Method"
+            allLabel="Cash or card"
+            options={METHODS}
+            labels={METHOD_LABELS}
+            counts={countBy(payments, (payment) => payment.paymentMethod ?? '')}
+            selected={filters.methods}
+            onChange={(v) => set({ methods: v })}
+          />
+        </FilterBar>
         {invalidRange && (
           <p className="form-error transaction-filter-error" role="alert">
             The From date must be on or before the To date.
@@ -194,7 +217,22 @@ export default function BudgetManagementPanel({
           onDelete={onDeletePayment}
         />
         {filteredPayments.length === 0 && (
-          <p className="empty-state">No budget payments match these filters.</p>
+          <div className="empty-state empty-action">
+            <p>
+              {payments.length === 0
+                ? 'No budgets yet.'
+                : 'No budget payments match these filters.'}
+            </p>
+            {chips.length > 0 && (
+              <button
+                className="button button-secondary"
+                onClick={() => setFilters(NO_FILTERS)}
+                type="button"
+              >
+                Show all budgets
+              </button>
+            )}
+          </div>
         )}
       </section>
       {previewData && (

@@ -2,6 +2,8 @@ import { AppError } from '../../shared/errors';
 import {
   AttachmentContent,
   AttachmentUpload,
+  AttendanceDayInput,
+  AttendanceEntry,
   BudgetTransaction,
   BudgetTransactionInput,
   Employee,
@@ -12,8 +14,14 @@ import {
   FinanceSnapshot,
   LegacyImportPayload,
   LegacyImportResult,
+  PayrollSettings,
+  Payslip,
+  PayslipInput,
+  SalaryAdvance,
+  SalaryAdvanceInput,
 } from '../../shared/types';
 import { EmployeeRole } from '../../shared/employeeRoles';
+import { assertNoPayrollHistory, takesAttendance } from '../../shared/payroll';
 import { assertMonthsOpen } from '../../shared/months';
 import { Database, Queryable } from './database';
 
@@ -66,6 +74,68 @@ type EmployeeRow = {
   salary: number | null;
   iqama_expiry: string | null;
   camp_name: string;
+  work_hours_per_day: number;
+  hourly_rate: number | null;
+};
+
+type AttendanceRow = {
+  employee_id: string;
+  work_date: string;
+  status: AttendanceEntry['status'];
+  hours: number;
+  note: string;
+};
+
+type AdvanceRow = {
+  id: string;
+  employee_id: string;
+  advance_date: string;
+  amount: number;
+  note: string;
+  created_at: Date;
+};
+
+type PayslipRow = {
+  id: string;
+  employee_id: string;
+  month: string;
+  employee_name: string;
+  iqama_no: string;
+  role: EmployeeRole;
+  designation: string;
+  project_name: string;
+  camp_name: string;
+  working_days: number;
+  present_days: number;
+  absent_days: number;
+  leave_days: number;
+  vacation_days: number;
+  holiday_days: number;
+  hours_worked: number;
+  basic_salary: number;
+  hourly_rate: number;
+  basic_pay: number;
+  overtime_hours: number;
+  overtime_rate: number;
+  allowance: number;
+  absence_deduction: number;
+  absence_fine: number;
+  advance_deduction: number;
+  other_deduction: number;
+  overtime_pay: number;
+  net_pay: number;
+  status: Payslip['status'];
+  paid_date: string | null;
+  note: string;
+};
+
+type PayrollSettingsRow = {
+  overtime_base_rate: number;
+  overtime_multiplier: number;
+  absence_fine: number;
+  absence_fine_free_days: number;
+  leave_paid: boolean;
+  vacation_paid: boolean;
 };
 
 export type ListTable = 'categories' | 'departments';
@@ -82,7 +152,24 @@ const RECEIPT_COLUMNS =
 
 const EMPLOYEE_COLUMNS = `
   id, name, nickname, role, iqama_no, designation, project_name, phone_no,
-  insurance_no, salary, iqama_expiry, camp_name`;
+  insurance_no, salary, iqama_expiry, camp_name, work_hours_per_day,
+  hourly_rate`;
+
+const ATTENDANCE_COLUMNS = 'employee_id, work_date, status, hours, note';
+
+const ADVANCE_COLUMNS =
+  'id, employee_id, advance_date, amount, note, created_at';
+
+const PAYSLIP_COLUMNS = `
+  id, employee_id, month, employee_name, iqama_no, role, designation,
+  project_name, camp_name, working_days, present_days, absent_days,
+  leave_days, holiday_days, hours_worked, basic_salary, hourly_rate,
+  basic_pay, overtime_hours, overtime_rate, allowance, absence_deduction,
+  absence_fine, advance_deduction, other_deduction, overtime_pay, net_pay,
+  status, paid_date, note, vacation_days`;
+
+const PAYROLL_SETTINGS_COLUMNS = `overtime_base_rate, overtime_multiplier, absence_fine,
+   absence_fine_free_days, leave_paid, vacation_paid`;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -146,6 +233,76 @@ function toEmployee(row: EmployeeRow): Employee {
     salary: row.salary,
     iqamaExpiry: row.iqama_expiry ?? '',
     campName: row.camp_name,
+    workHoursPerDay: row.work_hours_per_day,
+    hourlyRate: row.hourly_rate,
+  };
+}
+
+function toAttendance(row: AttendanceRow): AttendanceEntry {
+  return {
+    employeeId: row.employee_id,
+    date: row.work_date,
+    status: row.status,
+    hours: row.hours,
+    note: row.note,
+  };
+}
+
+function toAdvance(row: AdvanceRow): SalaryAdvance {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    date: row.advance_date,
+    amount: row.amount,
+    note: row.note,
+    createdAt: row.created_at.getTime(),
+  };
+}
+
+function toPayslip(row: PayslipRow): Payslip {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    month: row.month,
+    employeeName: row.employee_name,
+    iqamaNo: row.iqama_no,
+    role: row.role,
+    designation: row.designation,
+    projectName: row.project_name,
+    campName: row.camp_name,
+    workingDays: row.working_days,
+    presentDays: row.present_days,
+    absentDays: row.absent_days,
+    leaveDays: row.leave_days,
+    vacationDays: row.vacation_days,
+    holidayDays: row.holiday_days,
+    hoursWorked: row.hours_worked,
+    basicSalary: row.basic_salary,
+    hourlyRate: row.hourly_rate,
+    basicPay: row.basic_pay,
+    overtimeHours: row.overtime_hours,
+    overtimeRate: row.overtime_rate,
+    allowance: row.allowance,
+    absenceDeduction: row.absence_deduction,
+    absenceFine: row.absence_fine,
+    advanceDeduction: row.advance_deduction,
+    otherDeduction: row.other_deduction,
+    overtimePay: row.overtime_pay,
+    netPay: row.net_pay,
+    status: row.status,
+    paidDate: row.paid_date ?? '',
+    note: row.note,
+  };
+}
+
+function toPayrollSettings(row: PayrollSettingsRow): PayrollSettings {
+  return {
+    overtimeBaseRate: row.overtime_base_rate,
+    overtimeMultiplier: row.overtime_multiplier,
+    absenceFine: row.absence_fine,
+    absenceFineFreeDays: row.absence_fine_free_days,
+    leavePaid: row.leave_paid,
+    vacationPaid: row.vacation_paid,
   };
 }
 
@@ -306,6 +463,16 @@ export async function closeMonth(db: Database, month: string): Promise<void> {
   await db.query('DELETE FROM reopened_months WHERE month = $1', [month]);
 }
 
+async function readPayrollSettings(
+  client: Queryable,
+): Promise<PayrollSettings> {
+  const { rows } = await client.query<PayrollSettingsRow>(
+    `SELECT ${PAYROLL_SETTINGS_COLUMNS} FROM payroll_settings WHERE id = 1`,
+  );
+  if (!rows[0]) throw new AppError('INTERNAL', 'Payroll settings are missing.');
+  return toPayrollSettings(rows[0]);
+}
+
 export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
   // One consistent snapshot even if another user is writing concurrently.
   return db.transaction(
@@ -329,6 +496,15 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
         `SELECT ${EMPLOYEE_COLUMNS} FROM employees ORDER BY lower(name), iqama_no`,
       );
       const reopenedMonths = await listReopenedMonths(client);
+      const advances = await client.query<AdvanceRow>(
+        `SELECT ${ADVANCE_COLUMNS} FROM salary_advances
+         ORDER BY advance_date DESC, created_at DESC`,
+      );
+      const payslips = await client.query<PayslipRow>(
+        `SELECT ${PAYSLIP_COLUMNS} FROM payslips
+         ORDER BY month DESC, lower(employee_name), iqama_no`,
+      );
+      const payrollSettings = await readPayrollSettings(client);
       const attachmentsByExpense = new Map<string, ExpenseAttachment[]>();
       attachments.rows.forEach((row) => {
         const list = attachmentsByExpense.get(row.expense_id) ?? [];
@@ -344,6 +520,9 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
         departments,
         employees: employees.rows.map(toEmployee),
         reopenedMonths,
+        salaryAdvances: advances.rows.map(toAdvance),
+        payslips: payslips.rows.map(toPayslip),
+        payrollSettings,
       };
     },
     { isolation: 'REPEATABLE READ' },
@@ -498,6 +677,8 @@ function employeeParams(input: EmployeeInput) {
     input.nickname,
     input.salary,
     input.role,
+    input.workHoursPerDay,
+    input.hourlyRate,
   ];
 }
 
@@ -529,8 +710,9 @@ export function createEmployee(
     const { rows } = await client.query<EmployeeRow>(
       `INSERT INTO employees
          (name, iqama_no, designation, project_name, phone_no, insurance_no,
-          iqama_expiry, camp_name, nickname, salary, role)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          iqama_expiry, camp_name, nickname, salary, role,
+          work_hours_per_day, hourly_rate)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING ${EMPLOYEE_COLUMNS}`,
       employeeParams(input),
     );
@@ -561,7 +743,8 @@ export function updateEmployee(
       `UPDATE employees SET
          name = $2, iqama_no = $3, designation = $4, project_name = $5,
          phone_no = $6, insurance_no = $7, iqama_expiry = $8, camp_name = $9,
-         nickname = $10, salary = $11, role = $12, updated_at = now()
+         nickname = $10, salary = $11, role = $12, work_hours_per_day = $13,
+         hourly_rate = $14, updated_at = now()
        WHERE id = $1
        RETURNING ${EMPLOYEE_COLUMNS}`,
       [id, ...employeeParams(input)],
@@ -589,14 +772,386 @@ export function updateEmployee(
   });
 }
 
-/** Transactions keep the name of a deleted employee. */
-export async function deleteEmployee(db: Database, id: string): Promise<void> {
+/**
+ * Transactions keep the name of a deleted employee. An employee with
+ * attendance, advances or payslips is never deleted, so payroll history is
+ * not lost (the foreign keys also refuse it).
+ */
+export function deleteEmployee(db: Database, id: string): Promise<void> {
   assertUuid(id);
-  const { rowCount } = await db.query('DELETE FROM employees WHERE id = $1', [
-    id,
-  ]);
-  if (!rowCount)
-    throw new AppError('NOT_FOUND', 'That employee no longer exists.');
+  return db.transaction(async (client) => {
+    const { rows } = await client.query<{
+      name: string;
+      attendance: boolean;
+      advances: boolean;
+      payslips: boolean;
+    }>(
+      `SELECT name,
+         EXISTS (SELECT 1 FROM attendance WHERE employee_id = $1) AS attendance,
+         EXISTS (SELECT 1 FROM salary_advances WHERE employee_id = $1) AS advances,
+         EXISTS (SELECT 1 FROM payslips WHERE employee_id = $1) AS payslips
+       FROM employees WHERE id = $1 FOR UPDATE`,
+      [id],
+    );
+    if (!rows[0]) {
+      throw new AppError('NOT_FOUND', 'That employee no longer exists.');
+    }
+    assertNoPayrollHistory(rows[0].name, rows[0]);
+    await client.query('DELETE FROM employees WHERE id = $1', [id]);
+  });
+}
+
+export async function updatePayrollSettings(
+  db: Database,
+  settings: PayrollSettings,
+): Promise<PayrollSettings> {
+  const { rows } = await db.query<PayrollSettingsRow>(
+    `INSERT INTO payroll_settings
+       (id, overtime_base_rate, overtime_multiplier, absence_fine,
+        absence_fine_free_days, leave_paid, vacation_paid)
+     VALUES (1, $1, $2, $3, $4, $5, $6)
+     ON CONFLICT (id) DO UPDATE SET
+       overtime_base_rate = EXCLUDED.overtime_base_rate,
+       overtime_multiplier = EXCLUDED.overtime_multiplier,
+       absence_fine = EXCLUDED.absence_fine,
+       absence_fine_free_days = EXCLUDED.absence_fine_free_days,
+       leave_paid = EXCLUDED.leave_paid,
+       vacation_paid = EXCLUDED.vacation_paid,
+       updated_at = now()
+     RETURNING ${PAYROLL_SETTINGS_COLUMNS}`,
+    [
+      settings.overtimeBaseRate,
+      settings.overtimeMultiplier,
+      settings.absenceFine,
+      settings.absenceFineFreeDays,
+      settings.leavePaid,
+      settings.vacationPaid,
+    ],
+  );
+  return toPayrollSettings(rows[0]);
+}
+
+type EmployeeLookup = Pick<
+  EmployeeRow,
+  | 'id'
+  | 'name'
+  | 'iqama_no'
+  | 'role'
+  | 'designation'
+  | 'project_name'
+  | 'camp_name'
+>;
+
+/** Locks and returns the employees, or refuses if any no longer exists. */
+async function lockEmployees(
+  client: Queryable,
+  ids: string[],
+): Promise<Map<string, EmployeeLookup>> {
+  ids.forEach(assertUuid);
+  const unique = [...new Set(ids)];
+  const { rows } = await client.query<EmployeeLookup>(
+    `SELECT id, name, iqama_no, role, designation, project_name, camp_name
+     FROM employees WHERE id = ANY($1::uuid[]) FOR SHARE`,
+    [unique],
+  );
+  if (rows.length !== unique.length) {
+    throw new AppError(
+      'NOT_FOUND',
+      'An employee no longer exists. Refresh and try again.',
+    );
+  }
+  return new Map(rows.map((row) => [row.id, row]));
+}
+
+export async function listAttendance(
+  db: Database,
+  month: string,
+): Promise<AttendanceEntry[]> {
+  const { rows } = await db.query<AttendanceRow>(
+    `SELECT ${ATTENDANCE_COLUMNS} FROM attendance
+     WHERE work_date >= ($1 || '-01')::date
+       AND work_date < ($1 || '-01')::date + interval '1 month'
+     ORDER BY work_date, employee_id`,
+    [month],
+  );
+  return rows.map(toAttendance);
+}
+
+/**
+ * Saves only the rows given, so two people recording different employees
+ * on the same day never overwrite each other. A null status clears a day.
+ */
+export function saveAttendanceDay(
+  db: Database,
+  date: string,
+  rows: AttendanceDayInput[],
+): Promise<AttendanceEntry[]> {
+  return db.transaction(async (client) => {
+    const employees = await lockEmployees(
+      client,
+      rows.map((row) => row.employeeId),
+    );
+    const staff = [...employees.values()].find(
+      (employee) => !takesAttendance(employee.role),
+    );
+    if (staff) {
+      throw new AppError(
+        'VALIDATION',
+        `${staff.name} is staff, and staff have no attendance.`,
+      );
+    }
+    /* eslint-disable no-restricted-syntax, no-await-in-loop */
+    for (const row of rows) {
+      if (row.status === null) {
+        await client.query(
+          'DELETE FROM attendance WHERE employee_id = $1 AND work_date = $2',
+          [row.employeeId, date],
+        );
+      } else {
+        await client.query(
+          `INSERT INTO attendance (employee_id, work_date, status, hours, note)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (employee_id, work_date) DO UPDATE SET
+             status = EXCLUDED.status, hours = EXCLUDED.hours,
+             note = EXCLUDED.note, updated_at = now()`,
+          [row.employeeId, date, row.status, row.hours, row.note],
+        );
+      }
+    }
+    /* eslint-enable no-restricted-syntax, no-await-in-loop */
+    const saved = await client.query<AttendanceRow>(
+      `SELECT ${ATTENDANCE_COLUMNS} FROM attendance WHERE work_date = $1
+       ORDER BY employee_id`,
+      [date],
+    );
+    return saved.rows.map(toAttendance);
+  });
+}
+
+export function createSalaryAdvances(
+  db: Database,
+  inputs: SalaryAdvanceInput[],
+): Promise<SalaryAdvance[]> {
+  return db.transaction(async (client) => {
+    await lockEmployees(
+      client,
+      inputs.map((input) => input.employeeId),
+    );
+    const saved: SalaryAdvance[] = [];
+    /* eslint-disable no-restricted-syntax, no-await-in-loop */
+    for (const input of inputs) {
+      const { rows } = await client.query<AdvanceRow>(
+        `INSERT INTO salary_advances (employee_id, advance_date, amount, note)
+         VALUES ($1, $2, $3, $4)
+         RETURNING ${ADVANCE_COLUMNS}`,
+        [input.employeeId, input.date, input.amount, input.note],
+      );
+      saved.push(toAdvance(rows[0]));
+    }
+    /* eslint-enable no-restricted-syntax, no-await-in-loop */
+    return saved;
+  });
+}
+
+export function updateSalaryAdvance(
+  db: Database,
+  id: string,
+  input: SalaryAdvanceInput,
+): Promise<SalaryAdvance> {
+  assertUuid(id);
+  return db.transaction(async (client) => {
+    await lockEmployees(client, [input.employeeId]);
+    const { rows } = await client.query<AdvanceRow>(
+      `UPDATE salary_advances SET
+         employee_id = $2, advance_date = $3, amount = $4, note = $5,
+         updated_at = now()
+       WHERE id = $1
+       RETURNING ${ADVANCE_COLUMNS}`,
+      [id, input.employeeId, input.date, input.amount, input.note],
+    );
+    if (!rows[0]) {
+      throw new AppError('NOT_FOUND', 'That advance no longer exists.');
+    }
+    return toAdvance(rows[0]);
+  });
+}
+
+export async function deleteSalaryAdvance(
+  db: Database,
+  id: string,
+): Promise<void> {
+  assertUuid(id);
+  const { rowCount } = await db.query(
+    'DELETE FROM salary_advances WHERE id = $1',
+    [id],
+  );
+  if (!rowCount) {
+    throw new AppError('NOT_FOUND', 'That advance no longer exists.');
+  }
+}
+
+function existingPayslipError(name: string, month: string) {
+  return new AppError(
+    'CONFLICT',
+    `${name} already has a payslip for ${month}, so nothing was created. Refresh to see it.`,
+  );
+}
+
+function paidPayslipError(name: string, month: string) {
+  return new AppError(
+    'CONFLICT',
+    `${name}'s payslip for ${month} is already paid. Mark it unpaid first to change it.`,
+  );
+}
+
+/**
+ * Creates or replaces each employee's payslip for its month, in one
+ * transaction. A paid payslip is never changed. With `createOnly`, an
+ * existing payslip is refused instead of replaced.
+ */
+export function savePayslips(
+  db: Database,
+  inputs: PayslipInput[],
+  { createOnly = false }: { createOnly?: boolean } = {},
+): Promise<Payslip[]> {
+  return db.transaction(async (client) => {
+    const employees = await lockEmployees(
+      client,
+      inputs.map((input) => input.employeeId),
+    );
+    const saved: Payslip[] = [];
+    /* eslint-disable no-restricted-syntax, no-await-in-loop */
+    for (const input of inputs) {
+      const employee = employees.get(input.employeeId) as EmployeeLookup;
+      const existing = await client.query<{ status: string }>(
+        `SELECT status FROM payslips
+         WHERE employee_id = $1 AND month = $2 FOR UPDATE`,
+        [input.employeeId, input.month],
+      );
+      if (existing.rows[0]?.status === 'paid') {
+        throw paidPayslipError(employee.name, input.month);
+      }
+      if (existing.rows[0] && createOnly) {
+        throw existingPayslipError(employee.name, input.month);
+      }
+      const { rows } = await client.query<PayslipRow>(
+        `INSERT INTO payslips
+           (employee_id, month, employee_name, iqama_no, role, designation,
+            project_name, camp_name, working_days, present_days, absent_days,
+            leave_days, holiday_days, hours_worked, basic_salary, hourly_rate,
+            basic_pay, overtime_hours, overtime_rate, allowance,
+            absence_deduction, absence_fine, advance_deduction,
+            other_deduction, note, vacation_days)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                 $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+         ON CONFLICT (employee_id, month) DO UPDATE SET
+           employee_name = EXCLUDED.employee_name,
+           iqama_no = EXCLUDED.iqama_no, role = EXCLUDED.role,
+           designation = EXCLUDED.designation,
+           project_name = EXCLUDED.project_name,
+           camp_name = EXCLUDED.camp_name,
+           working_days = EXCLUDED.working_days,
+           present_days = EXCLUDED.present_days,
+           absent_days = EXCLUDED.absent_days,
+           leave_days = EXCLUDED.leave_days,
+           vacation_days = EXCLUDED.vacation_days,
+           holiday_days = EXCLUDED.holiday_days,
+           hours_worked = EXCLUDED.hours_worked,
+           basic_salary = EXCLUDED.basic_salary,
+           hourly_rate = EXCLUDED.hourly_rate,
+           basic_pay = EXCLUDED.basic_pay,
+           overtime_hours = EXCLUDED.overtime_hours,
+           overtime_rate = EXCLUDED.overtime_rate,
+           allowance = EXCLUDED.allowance,
+           absence_deduction = EXCLUDED.absence_deduction,
+           absence_fine = EXCLUDED.absence_fine,
+           advance_deduction = EXCLUDED.advance_deduction,
+           other_deduction = EXCLUDED.other_deduction,
+           note = EXCLUDED.note, updated_at = now()
+         RETURNING ${PAYSLIP_COLUMNS}`,
+        [
+          input.employeeId,
+          input.month,
+          employee.name,
+          employee.iqama_no,
+          employee.role,
+          employee.designation,
+          employee.project_name,
+          employee.camp_name,
+          input.workingDays,
+          input.presentDays,
+          input.absentDays,
+          input.leaveDays,
+          input.holidayDays,
+          input.hoursWorked,
+          input.basicSalary,
+          input.hourlyRate,
+          input.basicPay,
+          input.overtimeHours,
+          input.overtimeRate,
+          input.allowance,
+          input.absenceDeduction,
+          input.absenceFine,
+          input.advanceDeduction,
+          input.otherDeduction,
+          input.note,
+          input.vacationDays,
+        ],
+      );
+      saved.push(toPayslip(rows[0]));
+    }
+    /* eslint-enable no-restricted-syntax, no-await-in-loop */
+    return saved;
+  });
+}
+
+export function setPayslipsPaid(
+  db: Database,
+  ids: string[],
+  paidDate: string | null,
+): Promise<Payslip[]> {
+  ids.forEach(assertUuid);
+  return db.transaction(async (client) => {
+    const { rows } = await client.query<PayslipRow>(
+      `UPDATE payslips SET
+         status = CASE WHEN $2::date IS NULL THEN 'unpaid' ELSE 'paid' END,
+         -- An already paid payslip keeps the date it was paid.
+         paid_date = CASE WHEN $2::date IS NULL THEN NULL
+                          ELSE coalesce(paid_date, $2::date) END,
+         updated_at = now()
+       WHERE id = ANY($1::uuid[])
+       RETURNING ${PAYSLIP_COLUMNS}`,
+      [ids, paidDate],
+    );
+    if (rows.length !== ids.length) {
+      throw new AppError(
+        'NOT_FOUND',
+        'A payslip no longer exists. Refresh and try again.',
+      );
+    }
+    return rows.map(toPayslip);
+  });
+}
+
+export function deletePayslip(db: Database, id: string): Promise<void> {
+  assertUuid(id);
+  return db.transaction(async (client) => {
+    const { rows } = await client.query<{
+      status: string;
+      employee_name: string;
+      month: string;
+    }>(
+      'SELECT status, employee_name, month FROM payslips WHERE id = $1 FOR UPDATE',
+      [id],
+    );
+    if (!rows[0]) {
+      throw new AppError('NOT_FOUND', 'That payslip no longer exists.');
+    }
+    if (rows[0].status === 'paid') {
+      throw paidPayslipError(rows[0].employee_name, rows[0].month);
+    }
+    await client.query('DELETE FROM payslips WHERE id = $1', [id]);
+  });
 }
 
 export async function isDatabaseEmpty(client: Queryable): Promise<boolean> {

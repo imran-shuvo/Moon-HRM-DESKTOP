@@ -1,5 +1,5 @@
 import { formatMonthName, isMonthClosed } from '../../../shared/months';
-import { formatCurrency } from '../model';
+import { formatAmount } from '../model';
 
 type MonthlyExpenseSummary = {
   month: string;
@@ -69,7 +69,7 @@ export default function MonthlyExpensesTable({
                     )}
                   </td>
                   <td>{count}</td>
-                  <td className="amount-cell">{formatCurrency(total)}</td>
+                  <td className="amount-cell">{formatAmount(total)}</td>
                 </tr>
               ))}
             </tbody>

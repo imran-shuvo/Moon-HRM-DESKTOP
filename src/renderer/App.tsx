@@ -15,18 +15,18 @@ import {
   Expense,
   Section,
   employeeNames,
+  formatAmount,
   formatCurrency,
   calculateBudgetForPeriod,
   getExpenseTotal,
   getMonthDateRange,
   getMonthlyExpenseSummaries,
-  inDateRange,
   isIqamaExpiring,
-  matchesSearch,
   plural,
   withSerialNumbers,
 } from './expenses/model';
 import { isMonthClosed, monthKey } from '../shared/months';
+import { DEFAULT_PAYROLL_SETTINGS } from '../shared/payroll';
 import { FinanceApiProvider, errorMessage } from './data/FinanceApiContext';
 import {
   hasLegacyData,
@@ -58,6 +58,9 @@ import ReportExportPanel, {
   PrintableReportData,
 } from './expenses/components/ReportExportPanel';
 import MonthClosingPanel from './expenses/components/MonthClosingPanel';
+import AttendancePanel from './expenses/components/AttendancePanel';
+import PayrollPanel from './expenses/components/PayrollPanel';
+import { PrintJob } from './expenses/components/printJob';
 import BackupPanel from './expenses/components/BackupPanel';
 import DatabaseConnectionForm from './expenses/components/DatabaseConnectionForm';
 import moonLogo from '../../assets/moon-logo.png';
@@ -69,6 +72,9 @@ const EMPTY_SNAPSHOT: FinanceSnapshot = {
   departments: [],
   employees: [],
   reopenedMonths: [],
+  salaryAdvances: [],
+  payslips: [],
+  payrollSettings: DEFAULT_PAYROLL_SETTINGS,
 };
 
 /** Reload from the database when the window regains focus, at most this often. */
@@ -159,6 +165,18 @@ const CATEGORY_COLORS = [
   '#d9a23f',
 ];
 
+const SECTION_EYEBROWS: Record<Section, string> = {
+  Overview: 'FINANCE',
+  Transactions: 'FINANCE',
+  Budgets: 'FINANCE',
+  Reports: 'FINANCE',
+  Employees: 'PEOPLE',
+  Attendance: 'PEOPLE',
+  Payroll: 'PEOPLE',
+  Settings: 'SYSTEM',
+  Backup: 'SYSTEM',
+};
+
 const TITLES: Record<Section, { title: string; subtitle: string }> = {
   Overview: {
     title: 'Overview',
@@ -175,6 +193,14 @@ const TITLES: Record<Section, { title: string; subtitle: string }> = {
   Employees: {
     title: 'Employees',
     subtitle: 'Staff details and Iqama expiry dates at a glance.',
+  },
+  Attendance: {
+    title: 'Attendance',
+    subtitle: 'Daily register, monthly sheet and employee reports.',
+  },
+  Payroll: {
+    title: 'Payroll',
+    subtitle: 'Generate payslips by project, camp or role, and track advances.',
   },
   Reports: {
     title: 'Reports',
@@ -213,7 +239,17 @@ export default function App({ api }: { api: FinanceApi }) {
     () => withSerialNumbers(data.budgetTransactions),
     [data.budgetTransactions],
   );
-  const [section, setSection] = useState<Section>('Overview');
+  const [section, setSectionNow] = useState<Section>('Overview');
+  // Leaving Attendance with unsaved entries asks first, so nothing is lost.
+  const [attendanceDirty, setAttendanceDirty] = useState(false);
+  const [pendingSection, setPendingSection] = useState<Section>();
+  const setSection = useCallback(
+    (next: Section) => {
+      if (attendanceDirty && next !== section) setPendingSection(next);
+      else setSectionNow(next);
+    },
+    [attendanceDirty, section],
+  );
   const [sidebarHidden, setSidebarHidden] = useState(() => {
     try {
       return localStorage.getItem(SIDEBAR_HIDDEN_KEY) === 'true';
@@ -237,6 +273,7 @@ export default function App({ api }: { api: FinanceApi }) {
     useState<PrintableExpenseReportData>();
   const [printEmployeeReport, setPrintEmployeeReport] =
     useState<PrintableEmployeeReportData>();
+  const [printJob, setPrintJob] = useState<PrintJob>();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense>();
   const [selectedExpense, setSelectedExpense] = useState<Expense>();
@@ -248,10 +285,6 @@ export default function App({ api }: { api: FinanceApi }) {
   const [editingEmployee, setEditingEmployee] = useState<Employee>();
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee>();
   const [deleting, setDeleting] = useState(false);
-  const [search, setSearch] = useState('');
-  const [transactionFrom, setTransactionFrom] = useState('');
-  const [transactionTo, setTransactionTo] = useState('');
-  const [transactionPayee, setTransactionPayee] = useState('');
   const loadingRef = useRef<Promise<void>>();
   const reloadRequestedRef = useRef(false);
 
@@ -379,7 +412,7 @@ export default function App({ api }: { api: FinanceApi }) {
 
   const showTransactions = useCallback(() => {
     setSection('Transactions');
-  }, []);
+  }, [setSection]);
 
   const preparePdfExport = useCallback((report: PrintableReportData) => {
     setPrintReport(report);
@@ -412,13 +445,18 @@ export default function App({ api }: { api: FinanceApi }) {
       printBudgetReport?.fileName ??
       printExpenseReport?.fileName ??
       printEmployeeReport?.fileName ??
+      printJob?.fileName ??
       printReport?.fileName;
     if (!fileName) return undefined;
+    const landscape = printJob?.landscape === true;
 
     let active = true;
     const timeout = window.setTimeout(async () => {
       try {
-        const savedPath = await api.reports.savePdf(fileName);
+        const savedPath = await api.reports.savePdf(
+          fileName,
+          landscape ? { landscape } : undefined,
+        );
         if (active && savedPath) {
           setAppMessage({ kind: 'ok', text: `PDF saved: ${savedPath}` });
         }
@@ -435,6 +473,7 @@ export default function App({ api }: { api: FinanceApi }) {
           setPrintBudgetReport(undefined);
           setPrintExpenseReport(undefined);
           setPrintEmployeeReport(undefined);
+          setPrintJob(undefined);
         }
       }
     }, 100);
@@ -448,6 +487,7 @@ export default function App({ api }: { api: FinanceApi }) {
     printBudgetReport,
     printExpenseReport,
     printEmployeeReport,
+    printJob,
   ]);
 
   // The sidebar always shows the current month's budget.
@@ -509,16 +549,6 @@ export default function App({ api }: { api: FinanceApi }) {
     [api],
   );
   const monthlyExpenseSummaries = getMonthlyExpenseSummaries(expenses);
-  const transactionEntries = useMemo(
-    () =>
-      expenses.filter(
-        (expense) =>
-          inDateRange(expense.date, transactionFrom, transactionTo) &&
-          (!transactionPayee || expense.payee === transactionPayee) &&
-          matchesSearch(expense, search),
-      ),
-    [expenses, search, transactionFrom, transactionTo, transactionPayee],
-  );
 
   const saveExpense = useCallback(
     async (input: ExpenseInput, files: File[]) => {
@@ -793,6 +823,10 @@ export default function App({ api }: { api: FinanceApi }) {
           onSelect={setSection}
           section={section}
           transactionCount={expenses.length}
+          unpaidPayslipCount={
+            data.payslips.filter((payslip) => payslip.status === 'unpaid')
+              .length
+          }
           expiringIqamaCount={
             employees.filter((employee) => isIqamaExpiring(employee)).length
           }
@@ -864,7 +898,7 @@ export default function App({ api }: { api: FinanceApi }) {
                           year: 'numeric',
                         })
                         .toUpperCase()
-                    : 'FINANCE OVERVIEW'}
+                    : SECTION_EYEBROWS[section]}
                 </p>
                 <h1>{pageTitle}</h1>
                 <p className="page-subtitle">{page.subtitle}</p>
@@ -953,21 +987,13 @@ export default function App({ api }: { api: FinanceApi }) {
 
             {section === 'Transactions' && (
               <TransactionPanel
-                expenses={transactionEntries}
-                fromDate={transactionFrom}
-                toDate={transactionTo}
-                payee={transactionPayee}
-                search={search}
+                expenses={expenses}
                 payees={[
                   ...new Set([
                     ...employeeNameList,
                     ...expenses.map((expense) => expense.payee),
                   ]),
                 ].sort((a, b) => a.localeCompare(b))}
-                onFromDateChange={setTransactionFrom}
-                onToDateChange={setTransactionTo}
-                onPayeeChange={setTransactionPayee}
-                onSearchChange={setSearch}
                 onSelect={setSelectedExpense}
                 onExportPdf={prepareExpensePdfExport}
               />
@@ -990,6 +1016,56 @@ export default function App({ api }: { api: FinanceApi }) {
                 employees={employees}
                 onSelect={openEmployeeDialog}
                 onExportPdf={prepareEmployeePdfExport}
+              />
+            )}
+
+            {section === 'Attendance' && (
+              <AttendancePanel
+                employees={employees}
+                onPrint={setPrintJob}
+                onDirtyChange={setAttendanceDirty}
+              />
+            )}
+
+            {section === 'Payroll' && (
+              <PayrollPanel
+                employees={employees}
+                payslips={data.payslips}
+                salaryAdvances={data.salaryAdvances}
+                payrollSettings={data.payrollSettings}
+                onPayslipsSaved={(saved) =>
+                  setData((current) => ({
+                    ...current,
+                    payslips: saved.reduce(upsert, current.payslips),
+                  }))
+                }
+                onPayslipRemoved={(id) =>
+                  setData((current) => ({
+                    ...current,
+                    payslips: current.payslips.filter((item) => item.id !== id),
+                  }))
+                }
+                onAdvancesSaved={(saved) =>
+                  setData((current) => ({
+                    ...current,
+                    salaryAdvances: saved.reduce(
+                      upsert,
+                      current.salaryAdvances,
+                    ),
+                  }))
+                }
+                onAdvanceRemoved={(id) =>
+                  setData((current) => ({
+                    ...current,
+                    salaryAdvances: current.salaryAdvances.filter(
+                      (item) => item.id !== id,
+                    ),
+                  }))
+                }
+                onSettingsSaved={(payrollSettings) =>
+                  setData((current) => ({ ...current, payrollSettings }))
+                }
+                onPrint={setPrintJob}
               />
             )}
 
@@ -1081,7 +1157,9 @@ export default function App({ api }: { api: FinanceApi }) {
             onConfirm={confirmDeleteEmployee}
           >
             {employeeToDelete.name} (Iqama no. {employeeToDelete.iqamaNo}) will
-            be removed. Transactions already saved with this name keep it.
+            be removed. Transactions already saved with this name keep it. An
+            employee with attendance, advances or payslips cannot be deleted, so
+            payroll history is never lost.
           </ConfirmDialog>
         )}
         {selectedExpense && (
@@ -1119,7 +1197,7 @@ export default function App({ api }: { api: FinanceApi }) {
             onCancel={closePaymentDeleteConfirmation}
             onConfirm={confirmDeleteBudgetPayment}
           >
-            {formatCurrency(paymentToDelete.amount)} received on{' '}
+            {formatAmount(paymentToDelete.amount)} received on{' '}
             {paymentToDelete.date} will be removed and balances will be
             recalculated.
           </ConfirmDialog>
@@ -1132,6 +1210,26 @@ export default function App({ api }: { api: FinanceApi }) {
       )}
       {printEmployeeReport && (
         <EmployeePrintableReport data={printEmployeeReport} />
+      )}
+      {printJob?.content}
+      {pendingSection && (
+        <ConfirmDialog
+          id="leave-attendance"
+          eyebrow="UNSAVED ATTENDANCE"
+          title="Leave without saving attendance?"
+          confirmLabel="Discard and leave"
+          danger
+          busy={false}
+          onCancel={() => setPendingSection(undefined)}
+          onConfirm={() => {
+            setAttendanceDirty(false);
+            setSectionNow(pendingSection);
+            setPendingSection(undefined);
+          }}
+        >
+          The attendance you changed has not been saved. Cancel and press Save
+          attendance to keep it.
+        </ConfirmDialog>
       )}
     </FinanceApiProvider>
   );

@@ -92,11 +92,17 @@ function RestoreDialog({
             {plural(counts.departments, 'department')} ·{' '}
             {plural(counts.employees, 'employee')}
           </li>
+          <li>
+            {plural(counts.attendance ?? 0, 'attendance record')} ·{' '}
+            {plural(counts.salaryAdvances ?? 0, 'advance')} ·{' '}
+            {plural(counts.payslips ?? 0, 'payslip')}
+          </li>
         </ul>
         <p className="restore-warning">
-          Every expense, budget payment, type, department and employee in the
-          database will be replaced by the contents of this backup. A safety
-          backup of the current data is saved first, so this can be undone.
+          Every expense, budget payment, type, department, employee, attendance
+          record, advance and payslip in the database will be replaced by the
+          contents of this backup. A safety backup of the current data is saved
+          first, so this can be undone.
         </p>
         <label className="checkbox-field" htmlFor="restore-understood">
           <input

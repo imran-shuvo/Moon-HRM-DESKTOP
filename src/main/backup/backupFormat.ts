@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { gunzipSync, gzipSync } from 'zlib';
 import { isEmployeeRole } from '../../shared/employeeRoles';
+import { ATTENDANCE_STATUSES } from '../../shared/payroll';
 import { AppError } from '../../shared/errors';
 import { BackupCounts, BackupKind } from '../../shared/types';
 
@@ -12,12 +13,15 @@ import { BackupCounts, BackupKind } from '../../shared/types';
  *   schemaVersion, appVersion, kind, createdAt, counts,
  *   checksum: sha256(JSON.stringify(data)),
  *   data: { categories, departments, expenses, attachments, budgetReceipts,
- *           payees?, budgetPayers?, employees? }
+ *           payees?, budgetPayers?, employees?, attendance?,
+ *           salaryAdvances?, payslips?, payrollSettings? }
  * }
  *
  * `payees` and `budgetPayers` are only in backups made before employees
  * replaced those lists; they are checked but not restored. `employees` was
- * added later; backups without it restore with no employees.
+ * added later; backups without it restore with no employees. Attendance,
+ * advances, payslips and payroll settings were added after that; backups
+ * without them restore with none (and the default payroll settings).
  *
  * It is independent of pg_dump/PostgreSQL versions and contains receipts,
  * so one file is enough to rebuild the company's data on any new server.
@@ -88,6 +92,74 @@ export type BackupEmployee = {
   nickname?: string;
   salary?: number | null;
   role?: string;
+  workHoursPerDay?: number;
+  hourlyRate?: number | null;
+};
+
+export type BackupAttendance = {
+  employeeId: string;
+  workDate: string;
+  status: string;
+  hours: number;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BackupSalaryAdvance = {
+  id: string;
+  employeeId: string;
+  advanceDate: string;
+  amount: number;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Stored amounts only; overtime and net pay are recalculated by the database. */
+export type BackupPayslip = {
+  id: string;
+  employeeId: string;
+  month: string;
+  employeeName: string;
+  iqamaNo: string;
+  role: string;
+  designation: string;
+  projectName: string;
+  campName: string;
+  workingDays: number;
+  presentDays: number;
+  absentDays: number;
+  leaveDays: number;
+  /** Absent in backups made before vacation was added. */
+  vacationDays?: number;
+  holidayDays: number;
+  hoursWorked: number;
+  basicSalary: number;
+  hourlyRate: number;
+  basicPay: number;
+  overtimeHours: number;
+  overtimeRate: number;
+  allowance: number;
+  absenceDeduction: number;
+  absenceFine: number;
+  advanceDeduction: number;
+  otherDeduction: number;
+  status: 'unpaid' | 'paid';
+  paidDate: string | null;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BackupPayrollSettings = {
+  overtimeBaseRate: number;
+  overtimeMultiplier: number;
+  absenceFine: number;
+  absenceFineFreeDays: number;
+  // Absent in backups made before vacation was added.
+  leavePaid?: boolean;
+  vacationPaid?: boolean;
 };
 
 export type BackupData = {
@@ -100,6 +172,10 @@ export type BackupData = {
   payees?: BackupListItem[];
   budgetPayers?: BackupListItem[];
   employees?: BackupEmployee[];
+  attendance?: BackupAttendance[];
+  salaryAdvances?: BackupSalaryAdvance[];
+  payslips?: BackupPayslip[];
+  payrollSettings?: BackupPayrollSettings;
 };
 
 export type BackupDocument = {
@@ -128,6 +204,9 @@ export function countRecords(data: BackupData): BackupCounts {
     categories: data.categories.length,
     departments: data.departments.length,
     employees: data.employees?.length ?? 0,
+    attendance: data.attendance?.length ?? 0,
+    salaryAdvances: data.salaryAdvances?.length ?? 0,
+    payslips: data.payslips?.length ?? 0,
   };
 }
 
@@ -280,10 +359,108 @@ function validateData(value: unknown): BackupData {
               (r.salary === undefined ||
                 r.salary === null ||
                 isNumber(r.salary)) &&
+              (r.workHoursPerDay === undefined ||
+                isNumber(r.workHoursPerDay)) &&
+              (r.hourlyRate === undefined ||
+                r.hourlyRate === null ||
+                isNumber(r.hourlyRate)) &&
               isTimestamp(r.createdAt) &&
               isTimestamp(r.updatedAt),
           ),
   };
+
+  data.attendance =
+    raw.attendance === undefined
+      ? undefined
+      : checkRecords(
+          raw.attendance,
+          'Attendance',
+          (r) =>
+            isString(r.employeeId) &&
+            isDate(r.workDate) &&
+            ATTENDANCE_STATUSES.includes(r.status as never) &&
+            isNumber(r.hours) &&
+            isString(r.note) &&
+            isTimestamp(r.createdAt) &&
+            isTimestamp(r.updatedAt),
+        );
+  data.salaryAdvances =
+    raw.salaryAdvances === undefined
+      ? undefined
+      : checkRecords(
+          raw.salaryAdvances,
+          'Advances',
+          (r) =>
+            isString(r.id) &&
+            isString(r.employeeId) &&
+            isDate(r.advanceDate) &&
+            isNumber(r.amount) &&
+            isString(r.note) &&
+            isTimestamp(r.createdAt) &&
+            isTimestamp(r.updatedAt),
+        );
+  data.payslips =
+    raw.payslips === undefined
+      ? undefined
+      : checkRecords(
+          raw.payslips,
+          'Payslips',
+          (r) =>
+            isString(r.id) &&
+            isString(r.employeeId) &&
+            isString(r.month) &&
+            /^\d{4}-\d{2}$/.test(r.month) &&
+            [
+              r.employeeName,
+              r.iqamaNo,
+              r.role,
+              r.designation,
+              r.projectName,
+              r.campName,
+              r.note,
+            ].every(isString) &&
+            [
+              r.workingDays,
+              r.presentDays,
+              r.absentDays,
+              r.leaveDays,
+              r.holidayDays,
+              r.hoursWorked,
+              r.basicSalary,
+              r.hourlyRate,
+              r.basicPay,
+              r.overtimeHours,
+              r.overtimeRate,
+              r.allowance,
+              r.absenceDeduction,
+              r.absenceFine,
+              r.advanceDeduction,
+              r.otherDeduction,
+            ].every(isNumber) &&
+            (r.vacationDays === undefined || isNumber(r.vacationDays)) &&
+            ((r.status === 'paid' && isDate(r.paidDate)) ||
+              (r.status === 'unpaid' && r.paidDate === null)) &&
+            isTimestamp(r.createdAt) &&
+            isTimestamp(r.updatedAt),
+        );
+  if (raw.payrollSettings !== undefined) {
+    const settings = raw.payrollSettings as Record<string, unknown> | null;
+    if (
+      !settings ||
+      ![
+        settings.overtimeBaseRate,
+        settings.overtimeMultiplier,
+        settings.absenceFine,
+        settings.absenceFineFreeDays,
+      ].every(isNumber) ||
+      ![settings.leavePaid, settings.vacationPaid].every(
+        (flag) => flag === undefined || typeof flag === 'boolean',
+      )
+    ) {
+      invalid('the payroll settings are malformed.');
+    }
+    data.payrollSettings = settings as BackupPayrollSettings;
+  }
 
   // Referential integrity, so a restore never fails half way on a foreign key.
   const categories = new Set(data.categories.map((item) => item.name));
@@ -304,6 +481,19 @@ function validateData(value: unknown): BackupData {
       invalid(`attachment ${attachment.id} belongs to a missing expense.`);
     }
   });
+  const employeeIds = new Set(data.employees?.map((employee) => employee.id));
+  const payroll: [string, { employeeId: string }[] | undefined][] = [
+    ['an attendance record', data.attendance],
+    ['an advance', data.salaryAdvances],
+    ['a payslip', data.payslips],
+  ];
+  payroll.forEach(([label, records]) =>
+    records?.forEach((record) => {
+      if (!employeeIds.has(record.employeeId)) {
+        invalid(`${label} belongs to a missing employee.`);
+      }
+    }),
+  );
   return data;
 }
 
