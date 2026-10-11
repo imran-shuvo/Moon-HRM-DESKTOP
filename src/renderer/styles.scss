@@ -42,6 +42,11 @@ button { cursor: pointer; }
 .topbar { display: flex; height: 65px; align-items: center; justify-content: space-between; border-bottom: 1px solid #ececf1; padding: 0 44px; background: #fff; }
 .breadcrumb { color: #797b89; font-size: 11px; }
 .breadcrumb span { margin: 0 8px; color: #b6b7c1; }
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.sidebar-toggle { display: inline-grid; width: 30px; height: 30px; place-items: center; border: 1px solid #e7e7ec; border-radius: 6px; padding: 0; color: #444655; background: white; font-size: 14px; }
+.sidebar-toggle:hover { background: #f6f5fd; }
+.app-shell.sidebar-hidden .sidebar { display: none; }
+.app-shell.sidebar-hidden .main-content { margin-left: 0; }
 .topbar-right { display: flex; align-items: center; gap: 11px; }
 .period-label { color: #898a96; font-size: 10px; }
 .period-pill { display: inline-flex; min-width: 103px; align-items: center; justify-content: space-between; border: 1px solid #e7e7ec; border-radius: 6px; padding: 7px 9px; color: #444655; font-size: 10px; }

@@ -73,6 +73,7 @@ const EMPTY_SNAPSHOT: FinanceSnapshot = {
 
 /** Reload from the database when the window regains focus, at most this often. */
 const FOCUS_REFRESH_MS = 30_000;
+const SIDEBAR_HIDDEN_KEY = 'moon-finance:sidebar-hidden';
 
 type LoadState =
   | 'checking'
@@ -213,6 +214,22 @@ export default function App({ api }: { api: FinanceApi }) {
     [data.budgetTransactions],
   );
   const [section, setSection] = useState<Section>('Overview');
+  const [sidebarHidden, setSidebarHidden] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_HIDDEN_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const toggleSidebar = () =>
+    setSidebarHidden((hidden) => {
+      try {
+        localStorage.setItem(SIDEBAR_HIDDEN_KEY, String(!hidden));
+      } catch {
+        // Remembering the choice is optional.
+      }
+      return !hidden;
+    });
   const [printReport, setPrintReport] = useState<PrintableReportData>();
   const [printBudgetReport, setPrintBudgetReport] =
     useState<PrintableBudgetReportData>();
@@ -770,7 +787,7 @@ export default function App({ api }: { api: FinanceApi }) {
 
   return (
     <FinanceApiProvider value={api}>
-      <div className="app-shell">
+      <div className={`app-shell${sidebarHidden ? ' sidebar-hidden' : ''}`}>
         <Sidebar
           budget={currentTotalBudget}
           onSelect={setSection}
@@ -782,8 +799,20 @@ export default function App({ api }: { api: FinanceApi }) {
         />
         <main className="main-content">
           <header className="topbar">
-            <div className="breadcrumb">
-              Moon Trading Contracting &amp; Cleaning <span>/</span> Finance
+            <div className="topbar-left">
+              <button
+                aria-expanded={!sidebarHidden}
+                aria-label={sidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
+                className="sidebar-toggle"
+                onClick={toggleSidebar}
+                title={sidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
+                type="button"
+              >
+                {sidebarHidden ? '☰' : '«'}
+              </button>
+              <div className="breadcrumb">
+                Moon Trading Contracting &amp; Cleaning <span>/</span> Finance
+              </div>
             </div>
             {section === 'Overview' && (
               <div className="topbar-right">
