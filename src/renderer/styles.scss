@@ -321,13 +321,8 @@ h1 { margin-bottom: 5px; font: 700 25px 'Manrope', sans-serif; letter-spacing: -
 .delete-action { color: #ba535a; }
 .actions-cell { text-align: right; }
 .expense-table th.actions-cell, .expense-table td.actions-cell { padding-right: 17px; white-space: nowrap; }
-.management-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 17px; }
-.list-manager { padding: 19px; }
-.list-manager .panel-heading { margin-bottom: 15px; }
-.list-manager .panel-heading h2 { font-size: 15px; }
-.list-manager .panel-heading p { font-size: 11px; }
-.manager-add-form, .manager-edit-form { display: flex; align-items: center; gap: 7px; }
-.manager-add-form input, .manager-edit-form input {
+.manager-add-form { display: flex; align-items: center; gap: 7px; }
+.manager-add-form input {
   width: 100%; min-width: 0; height: 35px; border: 1px solid #e5e5ec; border-radius: 6px;
   padding: 0 10px; color: #393a48; background: #fff; font-size: 12px;
 }
@@ -409,7 +404,6 @@ h1 { margin-bottom: 5px; font: 700 25px 'Manrope', sans-serif; letter-spacing: -
   .transaction-filters .filter-control { min-width: 0; }
   .filter-control input, .filter-control select { width: 100%; }
   .transaction-filters .button { flex: 1; }
-  .management-grid { grid-template-columns: 1fr; }
   .manager-add-form .button { flex: 0 0 auto; }
   .report-controls { flex-direction: column; }
   .budget-ledger-summary { grid-template-columns: 1fr; gap: 13px; }

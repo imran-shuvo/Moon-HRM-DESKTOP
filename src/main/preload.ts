@@ -40,16 +40,6 @@ const financeApi: FinanceApi = {
     update: (id, input) => invoke(IPC.employeeUpdate, id, input),
     remove: (id) => invoke(IPC.employeeDelete, id),
   },
-  categories: {
-    add: (name) => invoke(IPC.categoryAdd, name),
-    rename: (previous, next) => invoke(IPC.categoryRename, previous, next),
-    remove: (name) => invoke(IPC.categoryDelete, name),
-  },
-  departments: {
-    add: (name) => invoke(IPC.departmentAdd, name),
-    rename: (previous, next) => invoke(IPC.departmentRename, previous, next),
-    remove: (name) => invoke(IPC.departmentDelete, name),
-  },
   months: {
     reopen: (month) => invoke(IPC.monthReopen, month),
     close: (month) => invoke(IPC.monthClose, month),

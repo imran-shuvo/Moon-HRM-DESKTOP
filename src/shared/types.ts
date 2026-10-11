@@ -115,12 +115,6 @@ export type FinanceSnapshot = {
   reopenedMonths: string[];
 };
 
-export type ListApi = {
-  add: (name: string) => Promise<void>;
-  rename: (previous: string, next: string) => Promise<void>;
-  remove: (name: string) => Promise<void>;
-};
-
 /** Data saved in localStorage/IndexedDB by the pre-database version of the app. */
 export type LegacyImportPayload = {
   expenses: (Expense & { attachmentFiles?: AttachmentUpload[] })[];
@@ -229,8 +223,6 @@ export type FinanceApi = {
     update: (id: string, input: EmployeeInput) => Promise<Employee>;
     remove: (id: string) => Promise<void>;
   };
-  categories: ListApi;
-  departments: ListApi;
   months: {
     /** Makes a closed month editable again. */
     reopen: (month: string) => Promise<void>;

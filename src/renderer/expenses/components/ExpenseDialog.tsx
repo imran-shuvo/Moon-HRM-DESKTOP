@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, useState } from 'react';
 import { ExpenseInput } from '../../../shared/types';
 import { Expense, PAYMENT_METHODS, todayKey } from '../model';
+import CreatableSelectField from './CreatableSelectField';
 import ListSelectField from './ListSelectField';
 
 export default function ExpenseDialog({
@@ -33,7 +34,6 @@ export default function ExpenseDialog({
     current !== undefined && !options.includes(current)
       ? [...options, current]
       : options;
-  const typeOptions = withCurrent(categories, expense?.category);
   const paymentMethods = withCurrent(PAYMENT_METHODS, expense?.paymentMethod);
   let submitLabel = expense ? 'Save changes' : 'Save expense';
   if (saving) submitLabel = 'Saving…';
@@ -73,8 +73,8 @@ export default function ExpenseDialog({
           vatNo: String(form.get('vatNo')).trim(),
           amountExcludingVat: amountExcludingVatValue,
           vat: vatValue,
-          category: String(form.get('type')),
-          department: String(form.get('department') ?? ''),
+          category: String(form.get('type')).trim(),
+          department: String(form.get('department') ?? '').trim(),
           paymentMethod: String(form.get('paymentMethod')),
         },
         files,
@@ -195,33 +195,25 @@ export default function ExpenseDialog({
                 placeholder="VAT registration number"
               />
             </label>
-            <label className="form-field" htmlFor="expense-type">
-              Type
-              <select
-                defaultValue={expense?.category ?? categories[0]}
-                id="expense-type"
-                name="type"
-              >
-                {typeOptions.map((category) => (
-                  <option key={category}>{category}</option>
-                ))}
-              </select>
-            </label>
-            <label className="form-field" htmlFor="expense-department">
-              Department
-              <select
-                defaultValue={expense?.department ?? ''}
-                id="expense-department"
-                name="department"
-              >
-                <option value="">— None —</option>
-                {withCurrent(departments, expense?.department || undefined).map(
-                  (department) => (
-                    <option key={department}>{department}</option>
-                  ),
-                )}
-              </select>
-            </label>
+            <CreatableSelectField
+              defaultValue={expense?.category ?? ''}
+              id="expense-type"
+              label="Type"
+              maxLength={40}
+              name="type"
+              newOptionLabel="New type"
+              options={categories}
+            />
+            <CreatableSelectField
+              defaultValue={expense?.department ?? ''}
+              id="expense-department"
+              label="Department"
+              maxLength={40}
+              name="department"
+              newOptionLabel="New department"
+              noneLabel="— None —"
+              options={departments}
+            />
             <label
               className="form-field"
               htmlFor="expense-amount-excluding-vat"

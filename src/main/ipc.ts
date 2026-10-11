@@ -15,7 +15,6 @@ import IPC from '../shared/ipcChannels';
 import { monthKey } from '../shared/months';
 import { IpcResult } from '../shared/types';
 import {
-  listName,
   pastMonth,
   recordId,
   validateBudgetTransactionInput,
@@ -206,42 +205,6 @@ export default function registerIpcHandlers({
   handle(IPC.employeeDelete, (id: unknown) =>
     repository.deleteEmployee(db(), recordId(id)),
   );
-
-  (
-    [
-      [
-        'categories',
-        'Category',
-        listName,
-        IPC.categoryAdd,
-        IPC.categoryRename,
-        IPC.categoryDelete,
-      ],
-      [
-        'departments',
-        'Department',
-        listName,
-        IPC.departmentAdd,
-        IPC.departmentRename,
-        IPC.departmentDelete,
-      ],
-    ] as const
-  ).forEach(([table, label, name, add, rename, remove]) => {
-    handle(add, (value: unknown) =>
-      repository.addListItem(db(), table, name(value, label)),
-    );
-    handle(rename, (previous: unknown, next: unknown) =>
-      repository.renameListItem(
-        db(),
-        table,
-        name(previous, label),
-        name(next, label),
-      ),
-    );
-    handle(remove, (value: unknown) =>
-      repository.deleteListItem(db(), table, name(value, label)),
-    );
-  });
 
   handle(IPC.monthReopen, (month: unknown) =>
     repository.reopenMonth(db(), pastMonth(month, monthKey())),

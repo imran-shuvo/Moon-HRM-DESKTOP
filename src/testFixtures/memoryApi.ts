@@ -11,10 +11,8 @@ import {
   ExpenseInput,
   FinanceApi,
   FinanceSnapshot,
-  ListApi,
 } from '../shared/types';
 import {
-  listName,
   pastMonth,
   validateBudgetTransactionInput,
   validateEmployeeInput,
@@ -118,45 +116,24 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
     return expense;
   }
 
-  function checkCategory(input: ExpenseInput) {
-    if (!state.categories.includes(input.category)) {
-      throw new AppError('VALIDATION', 'Choose an existing type.');
-    }
+  /** Same as the database: a new type or department is added to its list. */
+  function withListNames(input: ExpenseInput): ExpenseInput {
+    const ensure = (key: 'categories' | 'departments', name: string) => {
+      const existing = state[key].find(
+        (item) => item.toLowerCase() === name.toLowerCase(),
+      );
+      if (existing) return existing;
+      state[key] = [...state[key], name];
+      return name;
+    };
+    return {
+      ...input,
+      category: ensure('categories', input.category),
+      department: input.department
+        ? ensure('departments', input.department)
+        : '',
+    };
   }
-
-  type ListKey = 'categories' | 'departments';
-
-  /** Same rules as the database. */
-  const LISTS: Record<
-    ListKey,
-    {
-      label: string;
-      validate: (value: unknown, label: string) => string;
-      isUsed: (name: string) => boolean;
-      rename: (previous: string, next: string) => void;
-    }
-  > = {
-    categories: {
-      label: 'Category',
-      validate: listName,
-      isUsed: (name) => state.expenses.some((e) => e.category === name),
-      rename: (previous, next) => {
-        state.expenses = state.expenses.map((e) =>
-          e.category === previous ? { ...e, category: next, type: next } : e,
-        );
-      },
-    },
-    departments: {
-      label: 'Department',
-      validate: listName,
-      isUsed: (name) => state.expenses.some((e) => e.department === name),
-      rename: (previous, next) => {
-        state.expenses = state.expenses.map((e) =>
-          e.department === previous ? { ...e, department: next } : e,
-        );
-      },
-    },
-  };
 
   /** Same rules as the database: Iqama numbers are unique. */
   function saveEmployee(id: string, rawInput: EmployeeInput): Employee {
@@ -192,45 +169,6 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
     return { ...employee };
   }
 
-  function listApi(key: ListKey): ListApi {
-    const { label, validate, isUsed, rename } = LISTS[key];
-    const exists = (name: string) =>
-      state[key].some((item) => item.toLowerCase() === name.toLowerCase());
-    return {
-      add: async (value: string) => {
-        const name = validate(value, label);
-        if (exists(name))
-          throw new AppError('CONFLICT', 'That name already exists.');
-        state[key] = [...state[key], name];
-      },
-      rename: async (previous: string, next: string) => {
-        const name = validate(next, label);
-        if (name.toLowerCase() !== previous.toLowerCase() && exists(name)) {
-          throw new AppError('CONFLICT', 'That name already exists.');
-        }
-        state[key] = state[key].map((item) =>
-          item === previous ? name : item,
-        );
-        rename(previous, name);
-      },
-      remove: async (name: string) => {
-        if (isUsed(name)) {
-          throw new AppError(
-            'IN_USE',
-            'This item is still used by existing transactions. Edit those transactions first.',
-          );
-        }
-        if (state[key].length <= 1) {
-          throw new AppError(
-            'VALIDATION',
-            'Keep at least one option available.',
-          );
-        }
-        state[key] = state[key].filter((item) => item !== name);
-      },
-    };
-  }
-
   const api: FinanceApi = {
     database: {
       status: async () => ({
@@ -257,19 +195,17 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
     expenses: {
       create: async (rawInput, rawFiles) => {
         const input = validateExpenseInput(rawInput);
-        checkCategory(input);
         assertOpen(input.date);
-        const expense = toExpense(newId(), input);
+        const expense = toExpense(newId(), withListNames(input));
         expense.attachments = storeFiles(validateUploads(rawFiles));
         state.expenses = [expense, ...state.expenses];
         return clone(expense);
       },
       update: async (id, rawInput, rawFiles) => {
         const input = validateExpenseInput(rawInput);
-        checkCategory(input);
         const previous = findExpense(id);
         assertOpen(previous.date, input.date);
-        const expense = toExpense(id, input, previous);
+        const expense = toExpense(id, withListNames(input), previous);
         expense.attachments = [
           ...(previous.attachments ?? []),
           ...storeFiles(validateUploads(rawFiles)),
@@ -336,8 +272,6 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
         state.employees = state.employees.filter((item) => item.id !== id);
       },
     },
-    categories: listApi('categories'),
-    departments: listApi('departments'),
     months: {
       reopen: async (rawMonth) => {
         const month = pastMonth(rawMonth, monthKey());

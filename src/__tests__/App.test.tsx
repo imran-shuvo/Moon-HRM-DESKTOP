@@ -370,23 +370,69 @@ describe('App', () => {
     );
   });
 
-  it('adds a category for future transactions', async () => {
+  it('adds a new type and department from the expense form, not Settings', async () => {
     const memory = await renderApp();
     fireEvent.click(screen.getByRole('button', { name: /settings/i }));
-    fireEvent.change(screen.getByLabelText('New category name'), {
-      target: { value: 'Insurance' },
-    });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[0]);
+    expect(
+      screen.queryByRole('heading', { name: /categories|departments/i }),
+    ).not.toBeInTheDocument();
 
-    await waitFor(() =>
-      expect(memory.snapshot().categories).toContain('Insurance'),
-    );
-    expect(await screen.findByText('Insurance')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
     fireEvent.click(screen.getByRole('button', { name: /add expense/i }));
+    const dialog = within(screen.getByRole('dialog'));
+    chooseName('Paid to', 'Test Building Supply');
+    fireEvent.change(dialog.getByLabelText('Type'), {
+      target: { value: '__new__' },
+    });
+    fireEvent.change(dialog.getByLabelText('New type'), {
+      target: { value: 'Insurance' },
+    });
+    fireEvent.change(dialog.getByLabelText('Department'), {
+      target: { value: '__new__' },
+    });
+    fireEvent.change(dialog.getByLabelText('New department'), {
+      target: { value: 'Safety' },
+    });
+    fireEvent.change(dialog.getByLabelText('Particulars / details'), {
+      target: { value: 'Vehicle insurance' },
+    });
+    fireEvent.change(dialog.getByLabelText('Amount excluding VAT'), {
+      target: { value: '300' },
+    });
+    fireEvent.click(dialog.getByRole('button', { name: 'Save expense' }));
+    await waitForDialogToClose();
+
+    expect(memory.snapshot().categories).toContain('Insurance');
+    expect(memory.snapshot().departments).toContain('Safety');
+    expect(memory.snapshot().expenses).toContainEqual(
+      expect.objectContaining({ category: 'Insurance', department: 'Safety' }),
+    );
+
+    // Both are offered next time, and typing an existing name reuses it.
+    fireEvent.click(screen.getByRole('button', { name: /add expense/i }));
+    const next = within(screen.getByRole('dialog'));
+    expect(next.getByRole('option', { name: 'Insurance' })).toBeInTheDocument();
+    expect(next.getByRole('option', { name: 'Safety' })).toBeInTheDocument();
+    chooseName('Paid to', 'Test Building Supply');
+    fireEvent.change(next.getByLabelText('Type'), {
+      target: { value: '__new__' },
+    });
+    fireEvent.change(next.getByLabelText('New type'), {
+      target: { value: 'insurance' },
+    });
+    fireEvent.change(next.getByLabelText('Particulars / details'), {
+      target: { value: 'Renewal' },
+    });
+    fireEvent.change(next.getByLabelText('Amount excluding VAT'), {
+      target: { value: '50' },
+    });
+    fireEvent.click(next.getByRole('button', { name: 'Save expense' }));
+    await waitForDialogToClose();
     expect(
-      screen.getByRole('option', { name: 'Insurance' }),
-    ).toBeInTheDocument();
+      memory
+        .snapshot()
+        .categories.filter((name) => name.toLowerCase() === 'insurance'),
+    ).toEqual(['Insurance']);
   });
 
   it('filters expenses by payee and date range', async () => {
@@ -911,10 +957,11 @@ describe('App', () => {
         name: 'Rahim Uddin',
       }),
     ).toBeInTheDocument();
+    // "Paid to" only offers employees; a new name cannot be typed.
     expect(
-      within(screen.getByRole('dialog')).queryByRole('option', {
-        name: /new/i,
-      }),
+      within(
+        within(screen.getByRole('dialog')).getByLabelText('Paid to'),
+      ).queryByRole('option', { name: /new/i }),
     ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
 
@@ -1159,46 +1206,6 @@ describe('App', () => {
     expect(
       memory.snapshot().expenses.map((expense) => expense.payee),
     ).toContain('Pacific Supply Group');
-  });
-
-  it('asks before deleting an unused list item', async () => {
-    const memory = await renderApp();
-    fireEvent.click(screen.getByRole('button', { name: /settings/i }));
-    const departmentList = within(
-      screen
-        .getByRole('heading', { name: 'Departments' })
-        .closest('section') as HTMLElement,
-    );
-    fireEvent.change(departmentList.getByLabelText('New department name'), {
-      target: { value: 'Temporary Dept' },
-    });
-    fireEvent.click(departmentList.getByRole('button', { name: 'Add' }));
-    await waitFor(() =>
-      expect(memory.snapshot().departments).toContain('Temporary Dept'),
-    );
-
-    fireEvent.click(
-      departmentList.getByRole('button', { name: 'Delete Temporary Dept' }),
-    );
-    fireEvent.click(
-      within(screen.getByRole('alertdialog')).getByRole('button', {
-        name: 'Cancel',
-      }),
-    );
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    expect(memory.snapshot().departments).toContain('Temporary Dept');
-
-    fireEvent.click(
-      departmentList.getByRole('button', { name: 'Delete Temporary Dept' }),
-    );
-    fireEvent.click(
-      within(screen.getByRole('alertdialog')).getByRole('button', {
-        name: 'Delete',
-      }),
-    );
-    await waitFor(() =>
-      expect(memory.snapshot().departments).not.toContain('Temporary Dept'),
-    );
   });
 
   it('previews and exports the filtered expenses as a PDF', async () => {

@@ -24,7 +24,8 @@ Built with Electron, React and TypeScript.
   Iqama expiry, marks in red any Iqama expiring within 30 days, and filters
   by designation, project and camp. An expense's "Paid to" and a budget's
   payee are chosen from employees.
-- **Lists**: manage types (categories) and departments in Settings.
+- **Types and departments**: chosen from dropdowns when adding an expense;
+  a new one can be typed there and is saved for next time.
 - **Backup & restore**: automatic and manual backups to a single
   `.mfbackup` file that includes receipts. Every restore saves a safety
   backup first.

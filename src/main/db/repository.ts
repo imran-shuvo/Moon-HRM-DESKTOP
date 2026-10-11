@@ -241,6 +241,23 @@ async function ensureListItem(
   return name;
 }
 
+/**
+ * A type or department typed in the expense form is added to its list, and
+ * the list's spelling is used, so "materials" matches "Materials".
+ */
+async function withListNames(
+  client: Queryable,
+  input: ExpenseInput,
+): Promise<ExpenseInput> {
+  return {
+    ...input,
+    category: await ensureListItem(client, 'categories', input.category),
+    department: input.department
+      ? await ensureListItem(client, 'departments', input.department)
+      : '',
+  };
+}
+
 async function listReopenedMonths(client: Queryable): Promise<string[]> {
   const { rows } = await client.query<{ month: string }>(
     'SELECT month FROM reopened_months ORDER BY month',
@@ -340,6 +357,7 @@ export function createExpense(
 ): Promise<Expense> {
   return db.transaction(async (client) => {
     await assertDatesOpen(client, [input.date]);
+    const named = await withListNames(client, input);
     const { rows } = await client.query<{ id: string }>(
       `INSERT INTO expenses
          (expense_date, payee, particulars, category, department,
@@ -347,7 +365,7 @@ export function createExpense(
           amount_excluding_vat, vat)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING id`,
-      expenseParams(input),
+      expenseParams(named),
     );
     await insertAttachments(client, rows[0].id, files);
     return loadExpense(client, rows[0].id);
@@ -364,6 +382,7 @@ export async function updateExpense(
   return db.transaction(async (client) => {
     const previousDate = await lockedRecordDate(client, 'expenses', id);
     await assertDatesOpen(client, [previousDate, input.date]);
+    const named = await withListNames(client, input);
     await client.query(
       `UPDATE expenses SET
          expense_date = $2, payee = $3, particulars = $4, category = $5,
@@ -371,7 +390,7 @@ export async function updateExpense(
          invoice_no = $9, site_name = $10, vat_no = $11,
          amount_excluding_vat = $12, vat = $13, updated_at = now()
        WHERE id = $1`,
-      [id, ...expenseParams(input)],
+      [id, ...expenseParams(named)],
     );
     await insertAttachments(client, id, files);
     return loadExpense(client, id);
@@ -578,55 +597,6 @@ export async function deleteEmployee(db: Database, id: string): Promise<void> {
   ]);
   if (!rowCount)
     throw new AppError('NOT_FOUND', 'That employee no longer exists.');
-}
-
-export async function addListItem(
-  db: Database,
-  table: ListTable,
-  name: string,
-): Promise<void> {
-  await db.query(
-    `INSERT INTO ${table} (name, sort_order)
-     SELECT $1, coalesce(max(sort_order), 0) + 1 FROM ${table}`,
-    [name],
-  );
-}
-
-/** Renames cascade to expenses through ON UPDATE CASCADE. */
-export async function renameListItem(
-  db: Database,
-  table: ListTable,
-  previous: string,
-  next: string,
-): Promise<void> {
-  const { rowCount } = await db.query(
-    `UPDATE ${table} SET name = $2 WHERE name = $1`,
-    [previous, next],
-  );
-  if (!rowCount)
-    throw new AppError('NOT_FOUND', `"${previous}" no longer exists.`);
-}
-
-/** Deleting an item that expenses still use is refused by the foreign key. */
-export function deleteListItem(
-  db: Database,
-  table: ListTable,
-  name: string,
-): Promise<void> {
-  return db.transaction(async (client) => {
-    const { rows } = await client.query<{ count: string }>(
-      `SELECT count(*) AS count FROM ${table}`,
-    );
-    if (Number(rows[0].count) <= 1) {
-      throw new AppError('VALIDATION', 'Keep at least one option available.');
-    }
-    const { rowCount } = await client.query(
-      `DELETE FROM ${table} WHERE name = $1`,
-      [name],
-    );
-    if (!rowCount)
-      throw new AppError('NOT_FOUND', `"${name}" no longer exists.`);
-  });
 }
 
 export async function isDatabaseEmpty(client: Queryable): Promise<boolean> {

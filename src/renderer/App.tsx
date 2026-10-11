@@ -50,10 +50,6 @@ import ConfirmDialog from './expenses/components/ConfirmDialog';
 import BudgetPrintableReport, {
   PrintableBudgetReportData,
 } from './expenses/components/BudgetPrintableReport';
-import CategoryDepartmentManager, {
-  ListHandlers,
-  ListKind,
-} from './expenses/components/CategoryDepartmentManager';
 import ExpensePrintableReport, {
   PrintableExpenseReportData,
 } from './expenses/components/ExpensePrintableReport';
@@ -102,10 +98,12 @@ async function toUploads(files: File[]): Promise<AttachmentUpload[]> {
   );
 }
 
-const LIST_KEYS = {
-  category: 'categories',
-  department: 'departments',
-} as const satisfies Record<ListKind, keyof FinanceApi>;
+/** Adds `name` unless the list already has it (ignoring case). */
+function withName(list: string[], name: string) {
+  if (!name || list.some((item) => item.toLowerCase() === name.toLowerCase()))
+    return list;
+  return [...list, name];
+}
 
 function upsert<T extends { id: string }>(items: T[], item: T): T[] {
   return items.some((existing) => existing.id === item.id)
@@ -149,36 +147,6 @@ function renameEmployeeInSnapshot(
   };
 }
 
-/** Mirrors on loaded transactions a rename the database applied to them. */
-function renameInSnapshot(
-  data: FinanceSnapshot,
-  kind: ListKind,
-  previous: string,
-  next: string,
-): FinanceSnapshot {
-  const rename = (value: string | undefined) =>
-    value === previous ? next : value;
-  switch (kind) {
-    case 'category':
-      return {
-        ...data,
-        expenses: data.expenses.map((expense) =>
-          expense.category === previous
-            ? { ...expense, category: next, type: next }
-            : expense,
-        ),
-      };
-    default:
-      return {
-        ...data,
-        expenses: data.expenses.map((expense) => ({
-          ...expense,
-          department: rename(expense.department) ?? '',
-        })),
-      };
-  }
-}
-
 const CATEGORY_COLORS = [
   '#7368e8',
   '#34a881',
@@ -213,8 +181,7 @@ const TITLES: Record<Section, { title: string; subtitle: string }> = {
   },
   Settings: {
     title: 'Settings',
-    subtitle:
-      'Export reports, manage lists, and reopen closed months for corrections.',
+    subtitle: 'Export reports and reopen closed months for corrections.',
   },
   Backup: {
     title: 'Backup & restore',
@@ -545,6 +512,9 @@ export default function App({ api }: { api: FinanceApi }) {
       setData((current) => ({
         ...current,
         expenses: upsert(current.expenses, saved),
+        // A new type or department is added to its list by the database.
+        categories: withName(current.categories, saved.category),
+        departments: withName(current.departments, saved.department),
       }));
       setEditingExpense(undefined);
       setDialogOpen(false);
@@ -712,40 +682,6 @@ export default function App({ api }: { api: FinanceApi }) {
       setDeleting(false);
     }
   }, [api, employeeToDelete]);
-
-  // Category/department renames cascade in the database; mirror them locally.
-  const listHandlers = useMemo(() => {
-    const handlers = {} as Record<ListKind, ListHandlers>;
-    (Object.keys(LIST_KEYS) as ListKind[]).forEach((kind) => {
-      const key = LIST_KEYS[kind];
-      handlers[kind] = {
-        onAdd: async (value) => {
-          await api[key].add(value);
-          setData((current) => ({
-            ...current,
-            [key]: [...current[key], value],
-          }));
-        },
-        onRename: async (previous, next) => {
-          await api[key].rename(previous, next);
-          setData((current) => ({
-            ...renameInSnapshot(current, kind, previous, next),
-            [key]: current[key].map((item) =>
-              item === previous ? next : item,
-            ),
-          }));
-        },
-        onDelete: async (value) => {
-          await api[key].remove(value);
-          setData((current) => ({
-            ...current,
-            [key]: current[key].filter((item) => item !== value),
-          }));
-        },
-      };
-    });
-    return handlers;
-  }, [api]);
 
   if (loadState !== 'ready') {
     return (
@@ -1042,14 +978,6 @@ export default function App({ api }: { api: FinanceApi }) {
                   expenses={expenses}
                   payments={budgetTransactions}
                   onExportPdf={preparePdfExport}
-                />
-                <CategoryDepartmentManager
-                  lists={{
-                    category: categories,
-                    department: departments,
-                  }}
-                  expenses={expenses}
-                  handlers={listHandlers}
                 />
                 <MonthClosingPanel
                   reopenedMonths={reopenedMonths}
