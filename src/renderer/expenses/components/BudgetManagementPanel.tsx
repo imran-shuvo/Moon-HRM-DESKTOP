@@ -23,7 +23,7 @@ export default function BudgetManagementPanel({
   onExportPdf,
 }: {
   payments: BudgetTransaction[];
-  /** Payees saved in Settings. */
+  /** Employee names. */
   payers: string[];
   isDateClosed: (date: string) => boolean;
   onAddPayment: () => void;

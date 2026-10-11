@@ -5,6 +5,7 @@ const NAVIGATION: { label: Section; icon: string }[] = [
   { label: 'Overview', icon: '◫' },
   { label: 'Transactions', icon: '↕' },
   { label: 'Budgets', icon: '▥' },
+  { label: 'Employees', icon: '☺' },
   { label: 'Reports', icon: '▤' },
   { label: 'Settings', icon: '⚙' },
   { label: 'Backup', icon: '⛁' },
@@ -15,11 +16,14 @@ export default function Sidebar({
   onSelect,
   budget,
   transactionCount,
+  expiringIqamaCount,
 }: {
   section: Section;
   onSelect: (section: Section) => void;
   budget: number;
   transactionCount: number;
+  /** Employees whose Iqama expires soon or has expired. */
+  expiringIqamaCount: number;
 }) {
   return (
     <aside className="sidebar">
@@ -46,6 +50,14 @@ export default function Sidebar({
             {item.label}
             {item.label === 'Transactions' && (
               <span className="nav-count">{transactionCount}</span>
+            )}
+            {item.label === 'Employees' && expiringIqamaCount > 0 && (
+              <span
+                className="nav-count nav-count-alert"
+                title="Iqamas expiring within 30 days or expired"
+              >
+                {expiringIqamaCount}
+              </span>
             )}
           </button>
         ))}

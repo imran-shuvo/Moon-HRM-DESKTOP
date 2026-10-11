@@ -11,6 +11,7 @@ import { getRange } from '../renderer/expenses/components/ReportPanel';
 import createMemoryApi from '../testFixtures/memoryApi';
 import {
   BudgetTransaction,
+  Employee,
   Expense,
   calculateBudgetForPeriod,
   formatCurrency,
@@ -29,40 +30,71 @@ function matchesCurrency(amount: number) {
   return (content: string) => content.replace(/\u00a0/g, ' ') === expected;
 }
 
+/** Names the tests pick as "Paid to" or budget payee; seeded as employees. */
+const PICKED_NAMES = [
+  'Test Building Supply',
+  'Updated Supply Co.',
+  'January Vendor',
+  'Moon Contracting',
+  'Company',
+  'Acme Ltd',
+  'Northwind',
+  'Late Vendor',
+  'Northstar Rentals',
+  'Offline Vendor',
+];
+
+function testEmployee(name: string, index: number): Employee {
+  return {
+    id: `employee-${index + 1}`,
+    name,
+    nickname: '',
+    role: 'company_worker',
+    iqamaNo: String(2400000000 + index),
+    designation: '',
+    projectName: '',
+    phoneNo: '',
+    insuranceNo: '',
+    salary: null,
+    iqamaExpiry: '',
+    campName: '',
+  };
+}
+
 /** Renders the app against an in-memory database seeded with sample data. */
 async function renderApp(
   seed: {
     expenses?: Expense[];
     budgetTransactions?: BudgetTransaction[];
     reopenedMonths?: string[];
+    employees?: Employee[];
   } = {},
 ) {
+  const expenses = (seed.expenses ?? createSampleExpenses()).map(
+    normalizeExpense,
+  );
+  const names = [
+    ...new Set([...expenses.map((expense) => expense.payee), ...PICKED_NAMES]),
+  ];
   const memory = createMemoryApi({
-    expenses: (seed.expenses ?? createSampleExpenses()).map(normalizeExpense),
+    expenses,
     budgetTransactions: seed.budgetTransactions ?? [],
     reopenedMonths: seed.reopenedMonths ?? [],
+    employees: seed.employees ?? names.map(testEmployee),
   });
   render(<App api={memory.api} />);
   await screen.findByRole('navigation', { name: 'Main navigation' });
   return memory;
 }
 
-const NEW_NAME_LABELS: Record<string, string> = {
-  'Paid to': 'New paid to name',
-  'Received from': 'New payee name',
-};
-
-/** Picks a saved name in a dropdown, or chooses "New…" and types it. */
+/** Picks an employee name in a dropdown. */
 function chooseName(fieldLabel: string, value: string) {
   const dialog = within(screen.getByRole('dialog'));
   const select = dialog.getByLabelText(fieldLabel) as HTMLSelectElement;
-  const saved = [...select.options].some((option) => option.value === value);
-  fireEvent.change(select, { target: { value: saved ? value : '__new__' } });
-  if (!saved) {
-    fireEvent.change(dialog.getByLabelText(NEW_NAME_LABELS[fieldLabel]), {
-      target: { value },
-    });
+  if (![...select.options].some((option) => option.value === value)) {
+    throw new Error(`"${value}" is not offered; seed it as an employee.`);
   }
+  fireEvent.change(select, { target: { value } });
 }
 
 /**
@@ -831,119 +863,322 @@ describe('App', () => {
     );
   });
 
-  it('offers "Paid to" and budget payee names saved in Settings', async () => {
-    const memory = await renderApp();
+  it('offers employees as "Paid to" and budget payee, not Settings lists', async () => {
+    const memory = await renderApp({ employees: [] });
     fireEvent.click(screen.getByRole('button', { name: /settings/i }));
-    fireEvent.change(screen.getByLabelText('New paid to name'), {
-      target: { value: 'Gulf Cement Co.' },
+    expect(
+      screen.queryByRole('heading', { name: /paid to|payees/i }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /employees/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add employee/i }));
+    const dialog = within(screen.getByRole('dialog'));
+    fireEvent.change(dialog.getByLabelText('Name'), {
+      target: { value: 'Rahim Uddin' },
     });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[2]);
-    fireEvent.change(screen.getByLabelText('New payee name'), {
-      target: { value: 'Head Office' },
+    fireEvent.change(dialog.getByLabelText('Iqama no.'), {
+      target: { value: '2412345678' },
     });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[3]);
-    await waitFor(() =>
-      expect(memory.snapshot().budgetPayers).toContain('Head Office'),
-    );
-    expect(memory.snapshot().payees).toContain('Gulf Cement Co.');
+    fireEvent.change(dialog.getByLabelText('Camp name'), {
+      target: { value: 'Camp A' },
+    });
+    fireEvent.change(dialog.getByLabelText('Role'), {
+      target: { value: 'staff' },
+    });
+    fireEvent.change(dialog.getByLabelText('Nickname'), {
+      target: { value: 'Rahim' },
+    });
+    fireEvent.change(dialog.getByLabelText('Salary (SAR)'), {
+      target: { value: '2500.50' },
+    });
+    fireEvent.click(dialog.getByRole('button', { name: 'Save employee' }));
+    await waitForDialogToClose();
+    expect(memory.snapshot().employees).toEqual([
+      expect.objectContaining({
+        name: 'Rahim Uddin',
+        iqamaNo: '2412345678',
+        campName: 'Camp A',
+        nickname: 'Rahim',
+        salary: 2500.5,
+        role: 'staff',
+      }),
+    ]);
 
     fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
     fireEvent.click(screen.getByRole('button', { name: /add expense/i }));
     expect(
       within(screen.getByRole('dialog')).getByRole('option', {
-        name: 'Gulf Cement Co.',
+        name: 'Rahim Uddin',
       }),
     ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('dialog')).queryByRole('option', {
+        name: /new/i,
+      }),
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
 
     fireEvent.click(screen.getByRole('button', { name: /budgets/i }));
     fireEvent.click(screen.getByRole('button', { name: /add budget/i }));
     expect(
       within(screen.getByRole('dialog')).getByRole('option', {
-        name: 'Head Office',
+        name: 'Rahim Uddin',
       }),
     ).toBeInTheDocument();
   });
 
-  it('adds a newly typed "Paid to" name to the saved list', async () => {
-    const memory = await renderApp();
-    fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
-    fireEvent.click(screen.getByRole('button', { name: /add expense/i }));
-    chooseName('Paid to', 'Brand New Vendor');
-    fireEvent.change(screen.getByLabelText('Particulars / details'), {
-      target: { value: 'Supplies' },
+  it('refuses a second employee with the same Iqama no.', async () => {
+    await renderApp({ employees: [testEmployee('Karim', 0)] });
+    fireEvent.click(screen.getByRole('button', { name: /employees/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add employee/i }));
+    const dialog = within(screen.getByRole('dialog'));
+    fireEvent.change(dialog.getByLabelText('Name'), {
+      target: { value: 'Someone Else' },
     });
-    fireEvent.change(screen.getByLabelText('Amount excluding VAT'), {
-      target: { value: '10' },
+    fireEvent.change(dialog.getByLabelText('Role'), {
+      target: { value: 'outsource_worker' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save expense' }));
-    await waitForDialogToClose();
+    fireEvent.change(dialog.getByLabelText('Iqama no.'), {
+      target: { value: '2400000000' },
+    });
+    fireEvent.click(dialog.getByRole('button', { name: 'Save employee' }));
+    expect(await dialog.findByRole('alert')).toHaveTextContent(
+      'Iqama no. 2400000000 already belongs to Karim.',
+    );
+  });
 
-    expect(memory.snapshot().payees).toContain('Brand New Vendor');
-    fireEvent.click(screen.getByRole('button', { name: /add expense/i }));
+  it('lists employees, marks Iqamas expiring within 30 days, and filters', async () => {
+    const employee = (index: number, fields: Partial<Employee>): Employee => ({
+      ...testEmployee(`Employee ${index}`, index),
+      ...fields,
+    });
+    // Today is frozen at 2026-10-28.
+    await renderApp({
+      employees: [
+        employee(1, {
+          name: 'Expired Worker',
+          designation: 'Cleaner',
+          projectName: 'Mall',
+          campName: 'Camp A',
+          phoneNo: '0500000001',
+          iqamaExpiry: '2026-10-01',
+        }),
+        employee(2, {
+          name: 'Soon Worker',
+          designation: 'Driver',
+          projectName: 'Hospital',
+          campName: 'Camp B',
+          iqamaExpiry: '2026-11-26',
+        }),
+        employee(3, {
+          name: 'Safe Worker',
+          designation: 'Cleaner',
+          projectName: 'Hospital',
+          campName: 'Camp B',
+          iqamaExpiry: '2026-11-27',
+        }),
+      ],
+    });
+    fireEvent.click(screen.getByRole('button', { name: /employees/i }));
+    const table = screen.getByRole('table');
     expect(
-      within(screen.getByRole('dialog')).getByRole('option', {
-        name: 'Brand New Vendor',
-      }),
+      within(table)
+        .getAllByRole('columnheader')
+        .map((cell) => cell.textContent),
+    ).toEqual([
+      'NAME',
+      'IQAMA NO.',
+      'ROLE',
+      'DESIGNATION',
+      'PROJECT NAME',
+      'IQAMA EXPIRY',
+    ]);
+    expect(within(table).getAllByText('Company worker')).toHaveLength(3);
+    expect(within(table).getByText('2400000001')).toBeInTheDocument();
+    // Other details are not shown in the list.
+    expect(within(table).queryByText('0500000001')).not.toBeInTheDocument();
+
+    const row = (name: string) =>
+      within(table).getByText(name).closest('tr') as HTMLElement;
+    expect(row('Expired Worker')).toHaveClass('iqama-expiring');
+    expect(row('Expired Worker')).toHaveTextContent('Expired 27 days ago');
+    expect(row('Soon Worker')).toHaveClass('iqama-expiring');
+    expect(row('Safe Worker')).not.toHaveClass('iqama-expiring');
+
+    fireEvent.change(screen.getByLabelText('Filter employees by designation'), {
+      target: { value: 'Cleaner' },
+    });
+    fireEvent.change(screen.getByLabelText('Filter employees by camp'), {
+      target: { value: 'Camp B' },
+    });
+    expect(within(table).getByText('Safe Worker')).toBeInTheDocument();
+    expect(within(table).queryByText('Expired Worker')).not.toBeInTheDocument();
+    expect(within(table).queryByText('Soon Worker')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Filter employees by project'), {
+      target: { value: 'Mall' },
+    });
+    expect(
+      screen.getByText('No employees match these filters.'),
     ).toBeInTheDocument();
   });
 
-  it('renames a "Paid to" name on its expenses and blocks deleting it while used', async () => {
-    const memory = await renderApp();
-    fireEvent.click(screen.getByRole('button', { name: /settings/i }));
-    const payeeList = within(
-      screen
-        .getByRole('heading', { name: 'Paid to (expenses)' })
-        .closest('section') as HTMLElement,
-    );
-    const row = () =>
-      within(
-        payeeList
-          .getByText('Pacific Building Supply')
-          .closest('li') as HTMLElement,
-      );
-    fireEvent.click(
-      row().getByRole('button', { name: 'Delete Pacific Building Supply' }),
-    );
-    expect(payeeList.getByRole('alert')).toHaveTextContent(/Cannot delete/);
+  it('filters employees by several roles at once', async () => {
+    const memory = await renderApp({
+      employees: [
+        { ...testEmployee('Company Worker', 0), role: 'company_worker' },
+        { ...testEmployee('Outsource Worker', 1), role: 'outsource_worker' },
+        { ...testEmployee('Staff Member', 2), role: 'staff' },
+        {
+          ...testEmployee('Camp Worker', 3),
+          role: 'outsource_camp_worker',
+        },
+      ],
+    });
+    const savePdf = jest.spyOn(memory.api.reports, 'savePdf');
+    fireEvent.click(screen.getByRole('button', { name: /employees/i }));
+    const table = within(screen.getByRole('table'));
+    const listed = () =>
+      table
+        .queryAllByRole('button', { name: /^View employee/ })
+        .map((button) => button.textContent);
+    expect(listed()).toHaveLength(4);
 
-    fireEvent.click(row().getByRole('button', { name: 'Rename' }));
+    const roles = within(screen.getByRole('group', { name: 'Role' }));
+    fireEvent.click(roles.getByLabelText('Staff'));
+    expect(listed()).toEqual(['Staff Member']);
+    expect(screen.getByText('Staff', { selector: 'summary' })).toBeVisible();
+
+    fireEvent.click(roles.getByLabelText('Outsource camp worker'));
+    expect(listed()).toEqual(['Staff Member', 'Camp Worker']);
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview PDF' }));
+    expect(
+      screen.getByText('Role: Staff, Outsource camp worker'),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close preview' }));
+
+    fireEvent.click(roles.getByLabelText('Staff'));
+    expect(listed()).toEqual(['Camp Worker']);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(listed()).toHaveLength(4);
+    expect(roles.getByLabelText('Outsource camp worker')).not.toBeChecked();
+    expect(savePdf).not.toHaveBeenCalled();
+  });
+
+  it('filters employees by Iqama status and exports them as a PDF', async () => {
+    const employee = (name: string, index: number, iqamaExpiry: string) => ({
+      ...testEmployee(name, index),
+      designation: 'Cleaner',
+      iqamaExpiry,
+    });
+    // Today is frozen at 2026-10-28.
+    const memory = await renderApp({
+      employees: [
+        employee('Expired Worker', 0, '2026-10-01'),
+        employee('Soon Worker', 1, '2026-11-20'),
+        employee('Valid Worker', 2, '2027-05-01'),
+        employee('Unknown Worker', 3, ''),
+      ],
+    });
+    const savePdf = jest.spyOn(memory.api.reports, 'savePdf');
+    fireEvent.click(screen.getByRole('button', { name: /employees/i }));
+    const table = within(screen.getByRole('table'));
+    const status = screen.getByLabelText('Filter employees by Iqama status');
+    const listed = () =>
+      table
+        .queryAllByRole('button', { name: /^View employee/ })
+        .map((button) => button.textContent);
+
+    fireEvent.change(status, { target: { value: 'expired' } });
+    expect(listed()).toEqual(['Expired Worker']);
+    fireEvent.change(status, { target: { value: 'expiring' } });
+    expect(listed()).toEqual(['Soon Worker']);
+    fireEvent.change(status, { target: { value: 'missing' } });
+    expect(listed()).toEqual(['Unknown Worker']);
+    fireEvent.change(status, { target: { value: 'valid' } });
+    expect(listed()).toEqual(['Valid Worker']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview PDF' }));
+    const preview = within(
+      screen.getByRole('dialog', { name: 'Preview employee PDF' }),
+    );
+    expect(preview.getByText('EMPLOYEE REPORT')).toBeInTheDocument();
+    expect(preview.getByText('Iqama status: Valid')).toBeInTheDocument();
+    const printTable = within(preview.getByRole('table'));
+    expect(printTable.getByText('Valid Worker')).toBeInTheDocument();
+    expect(printTable.queryByText('Expired Worker')).not.toBeInTheDocument();
+    fireEvent.click(preview.getByRole('button', { name: 'Close preview' }));
+
+    fireEvent.change(status, { target: { value: '' } });
+    fireEvent.click(
+      screen.getByRole('button', { name: /export employees as pdf/i }),
+    );
+    await waitFor(() => expect(savePdf).toHaveBeenCalledTimes(1));
+    expect(savePdf.mock.calls[0][0]).toMatch(
+      /^employees_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/,
+    );
+  });
+
+  it('renames an employee on their transactions and deletes after confirming', async () => {
+    const memory = await renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /employees/i }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'View employee Pacific Building Supply',
+      }),
+    );
     fireEvent.change(
-      payeeList.getByLabelText('Rename Pacific Building Supply'),
+      within(screen.getByRole('dialog')).getByLabelText('Name'),
       { target: { value: 'Pacific Supply Group' } },
     );
-    fireEvent.click(payeeList.getByRole('button', { name: 'Save' }));
-    expect(memory.snapshot().payees).toContain('Pacific Building Supply');
-    const confirmation = within(screen.getByRole('alertdialog'));
-    expect(confirmation.getByText(/will be updated/)).toBeInTheDocument();
-    fireEvent.click(confirmation.getByRole('button', { name: 'Rename' }));
-
-    await waitFor(() =>
-      expect(memory.snapshot().payees).toContain('Pacific Supply Group'),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitForDialogToClose();
     const payees = memory.snapshot().expenses.map((expense) => expense.payee);
     expect(payees).toContain('Pacific Supply Group');
     expect(payees).not.toContain('Pacific Building Supply');
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'View employee Pacific Supply Group',
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete employee' }));
+    fireEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: 'Delete employee',
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        memory.snapshot().employees.map((employee) => employee.name),
+      ).not.toContain('Pacific Supply Group'),
+    );
+    // Saved transactions keep the name.
+    expect(
+      memory.snapshot().expenses.map((expense) => expense.payee),
+    ).toContain('Pacific Supply Group');
   });
 
   it('asks before deleting an unused list item', async () => {
     const memory = await renderApp();
     fireEvent.click(screen.getByRole('button', { name: /settings/i }));
-    const payeeList = within(
+    const departmentList = within(
       screen
-        .getByRole('heading', { name: 'Paid to (expenses)' })
+        .getByRole('heading', { name: 'Departments' })
         .closest('section') as HTMLElement,
     );
-    fireEvent.change(payeeList.getByLabelText('New paid to name'), {
-      target: { value: 'Temporary Vendor' },
+    fireEvent.change(departmentList.getByLabelText('New department name'), {
+      target: { value: 'Temporary Dept' },
     });
-    fireEvent.click(payeeList.getByRole('button', { name: 'Add' }));
+    fireEvent.click(departmentList.getByRole('button', { name: 'Add' }));
     await waitFor(() =>
-      expect(memory.snapshot().payees).toContain('Temporary Vendor'),
+      expect(memory.snapshot().departments).toContain('Temporary Dept'),
     );
 
     fireEvent.click(
-      payeeList.getByRole('button', { name: 'Delete Temporary Vendor' }),
+      departmentList.getByRole('button', { name: 'Delete Temporary Dept' }),
     );
     fireEvent.click(
       within(screen.getByRole('alertdialog')).getByRole('button', {
@@ -951,10 +1186,10 @@ describe('App', () => {
       }),
     );
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    expect(memory.snapshot().payees).toContain('Temporary Vendor');
+    expect(memory.snapshot().departments).toContain('Temporary Dept');
 
     fireEvent.click(
-      payeeList.getByRole('button', { name: 'Delete Temporary Vendor' }),
+      departmentList.getByRole('button', { name: 'Delete Temporary Dept' }),
     );
     fireEvent.click(
       within(screen.getByRole('alertdialog')).getByRole('button', {
@@ -962,7 +1197,7 @@ describe('App', () => {
       }),
     );
     await waitFor(() =>
-      expect(memory.snapshot().payees).not.toContain('Temporary Vendor'),
+      expect(memory.snapshot().departments).not.toContain('Temporary Dept'),
     );
   });
 

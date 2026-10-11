@@ -19,8 +19,12 @@ Built with Electron, React and TypeScript.
 - **Month closing**: each month becomes read-only when it ends, and its
   remaining budget is carried into the next month. A closed month can be
   reopened for corrections in Settings.
-- **Lists**: manage types (categories), departments, "Paid to" names and
-  budget payees in Settings.
+- **Employees**: name, Iqama no., designation, project, phone, insurance
+  no., Iqama expiry and camp. The list shows name, designation, project and
+  Iqama expiry, marks in red any Iqama expiring within 30 days, and filters
+  by designation, project and camp. An expense's "Paid to" and a budget's
+  payee are chosen from employees.
+- **Lists**: manage types (categories) and departments in Settings.
 - **Backup & restore**: automatic and manual backups to a single
   `.mfbackup` file that includes receipts. Every restore saves a safety
   backup first.

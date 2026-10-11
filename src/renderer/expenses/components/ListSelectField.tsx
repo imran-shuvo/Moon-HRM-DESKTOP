@@ -1,11 +1,6 @@
-import { useState } from 'react';
-
-const NEW_OPTION = '__new__';
-
 /**
- * A dropdown of saved names (managed in Settings) with a last option to type
- * a new one. A new name is added to the saved list when the form is saved.
- * The chosen or typed value is submitted under `name`.
+ * A required dropdown of names (employees, managed in the Employees section).
+ * The chosen value is submitted under `name`.
  */
 export default function ListSelectField({
   id,
@@ -13,9 +8,7 @@ export default function ListSelectField({
   name,
   options,
   defaultValue,
-  newOptionLabel,
-  placeholder,
-  maxLength,
+  emptyLabel,
   className,
 }: {
   id: string;
@@ -23,9 +16,8 @@ export default function ListSelectField({
   name: string;
   options: string[];
   defaultValue: string;
-  newOptionLabel: string;
-  placeholder: string;
-  maxLength: number;
+  /** Shown when nothing is chosen yet. */
+  emptyLabel: string;
   className: string;
 }) {
   // An old value missing from the list is still offered, so editing keeps it.
@@ -33,37 +25,18 @@ export default function ListSelectField({
     defaultValue && !options.includes(defaultValue)
       ? [...options, defaultValue]
       : options;
-  const [selected, setSelected] = useState(
-    defaultValue || choices[0] || NEW_OPTION,
-  );
-  const typingNew = selected === NEW_OPTION;
 
   return (
     <div className={className}>
       <label htmlFor={id}>{label}</label>
-      <select
-        id={id}
-        name={typingNew ? undefined : name}
-        onChange={(event) => setSelected(event.currentTarget.value)}
-        value={selected}
-      >
+      <select id={id} name={name} defaultValue={defaultValue} required>
+        <option disabled value="">
+          {choices.length ? emptyLabel : 'Add employees first'}
+        </option>
         {choices.map((choice) => (
           <option key={choice}>{choice}</option>
         ))}
-        <option value={NEW_OPTION}>＋ {newOptionLabel}</option>
       </select>
-      {typingNew && (
-        <input
-          aria-label={newOptionLabel}
-          // Focus is expected right after choosing "new" from the dropdown.
-          // eslint-disable-next-line jsx-a11y/no-autofocus
-          autoFocus={choices.length > 0}
-          maxLength={maxLength}
-          name={name}
-          placeholder={placeholder}
-          required
-        />
-      )}
     </div>
   );
 }

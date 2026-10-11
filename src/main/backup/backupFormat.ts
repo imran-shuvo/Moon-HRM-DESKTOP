@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { gunzipSync, gzipSync } from 'zlib';
+import { isEmployeeRole } from '../../shared/employeeRoles';
 import { AppError } from '../../shared/errors';
 import { BackupCounts, BackupKind } from '../../shared/types';
 
@@ -11,11 +12,12 @@ import { BackupCounts, BackupKind } from '../../shared/types';
  *   schemaVersion, appVersion, kind, createdAt, counts,
  *   checksum: sha256(JSON.stringify(data)),
  *   data: { categories, departments, expenses, attachments, budgetReceipts,
- *           payees?, budgetPayers? }
+ *           payees?, budgetPayers?, employees? }
  * }
  *
- * `payees` and `budgetPayers` were added later; backups without them are
- * still valid and the lists are rebuilt from the transactions on restore.
+ * `payees` and `budgetPayers` are only in backups made before employees
+ * replaced those lists; they are checked but not restored. `employees` was
+ * added later; backups without it restore with no employees.
  *
  * It is independent of pg_dump/PostgreSQL versions and contains receipts,
  * so one file is enough to rebuild the company's data on any new server.
@@ -70,6 +72,24 @@ export type BackupReceipt = {
   updatedAt: string;
 };
 
+export type BackupEmployee = {
+  id: string;
+  name: string;
+  iqamaNo: string;
+  designation: string;
+  projectName: string;
+  phoneNo: string;
+  insuranceNo: string;
+  iqamaExpiry: string | null;
+  campName: string;
+  createdAt: string;
+  updatedAt: string;
+  // Added later; absent in older backups.
+  nickname?: string;
+  salary?: number | null;
+  role?: string;
+};
+
 export type BackupData = {
   categories: BackupListItem[];
   departments: BackupListItem[];
@@ -79,6 +99,7 @@ export type BackupData = {
   // Last, so older backups (without them) keep the same checksum.
   payees?: BackupListItem[];
   budgetPayers?: BackupListItem[];
+  employees?: BackupEmployee[];
 };
 
 export type BackupDocument = {
@@ -106,6 +127,7 @@ export function countRecords(data: BackupData): BackupCounts {
     budgetTransactions: data.budgetReceipts.length,
     categories: data.categories.length,
     departments: data.departments.length,
+    employees: data.employees?.length ?? 0,
   };
 }
 
@@ -233,6 +255,34 @@ function validateData(value: unknown): BackupData {
       raw.budgetPayers === undefined
         ? undefined
         : checkRecords(raw.budgetPayers, 'Budget payees', isListItem),
+    employees:
+      raw.employees === undefined
+        ? undefined
+        : checkRecords(
+            raw.employees,
+            'Employees',
+            (r) =>
+              isString(r.id) &&
+              isString(r.name) &&
+              r.name.trim().length > 0 &&
+              isString(r.iqamaNo) &&
+              r.iqamaNo.trim().length > 0 &&
+              [
+                r.designation,
+                r.projectName,
+                r.phoneNo,
+                r.insuranceNo,
+                r.campName,
+              ].every(isString) &&
+              (r.iqamaExpiry === null || isDate(r.iqamaExpiry)) &&
+              (r.nickname === undefined || isString(r.nickname)) &&
+              (r.role === undefined || isEmployeeRole(r.role)) &&
+              (r.salary === undefined ||
+                r.salary === null ||
+                isNumber(r.salary)) &&
+              isTimestamp(r.createdAt) &&
+              isTimestamp(r.updatedAt),
+          ),
   };
 
   // Referential integrity, so a restore never fails half way on a foreign key.

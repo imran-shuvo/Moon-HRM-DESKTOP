@@ -35,6 +35,11 @@ const financeApi: FinanceApi = {
     update: (id, input) => invoke(IPC.budgetUpdate, id, input),
     remove: (id) => invoke(IPC.budgetDelete, id),
   },
+  employees: {
+    create: (input) => invoke(IPC.employeeCreate, input),
+    update: (id, input) => invoke(IPC.employeeUpdate, id, input),
+    remove: (id) => invoke(IPC.employeeDelete, id),
+  },
   categories: {
     add: (name) => invoke(IPC.categoryAdd, name),
     rename: (previous, next) => invoke(IPC.categoryRename, previous, next),
@@ -44,16 +49,6 @@ const financeApi: FinanceApi = {
     add: (name) => invoke(IPC.departmentAdd, name),
     rename: (previous, next) => invoke(IPC.departmentRename, previous, next),
     remove: (name) => invoke(IPC.departmentDelete, name),
-  },
-  payees: {
-    add: (name) => invoke(IPC.payeeAdd, name),
-    rename: (previous, next) => invoke(IPC.payeeRename, previous, next),
-    remove: (name) => invoke(IPC.payeeDelete, name),
-  },
-  budgetPayers: {
-    add: (name) => invoke(IPC.budgetPayerAdd, name),
-    rename: (previous, next) => invoke(IPC.budgetPayerRename, previous, next),
-    remove: (name) => invoke(IPC.budgetPayerDelete, name),
   },
   months: {
     reopen: (month) => invoke(IPC.monthReopen, month),

@@ -1,9 +1,9 @@
 import { FormEvent, useState } from 'react';
 import { errorMessage } from '../../data/FinanceApiContext';
 import ConfirmDialog from './ConfirmDialog';
-import { BudgetTransaction, Expense } from '../model';
+import { Expense } from '../model';
 
-export type ListKind = 'category' | 'department' | 'payee' | 'budgetPayer';
+export type ListKind = 'category' | 'department';
 
 export type ListHandlers = {
   onAdd: (value: string) => Promise<void>;
@@ -13,33 +13,21 @@ export type ListHandlers = {
 
 const LIST_TEXT: Record<
   ListKind,
-  { label: string; title: string; description: string; maxLength: number }
+  { label: string; title: string; description: string }
 > = {
   category: {
     label: 'Category',
     title: 'Categories',
     description: 'Add, rename, or remove options used by transactions.',
-    maxLength: 40,
   },
   department: {
     label: 'Department',
     title: 'Departments',
     description: 'Add, rename, or remove options used by transactions.',
-    maxLength: 40,
-  },
-  payee: {
-    label: 'Paid to',
-    title: 'Paid to (expenses)',
-    description: 'Vendors and recipients offered when adding an expense.',
-    maxLength: 100,
-  },
-  budgetPayer: {
-    label: 'Payee',
-    title: 'Payees (budgets)',
-    description: 'People or companies a budget payment is received from.',
-    maxLength: 100,
   },
 };
+
+const MAX_LENGTH = 40;
 
 function ListEditor({
   kind,
@@ -53,9 +41,7 @@ function ListEditor({
   items: string[];
   usageCount: (value: string) => number;
 }) {
-  const { label, title, description, maxLength } = LIST_TEXT[kind];
-  // The database keeps at least one category and department; payee lists may be emptied.
-  const keepOne = kind === 'category' || kind === 'department';
+  const { label, title, description } = LIST_TEXT[kind];
   const [newValue, setNewValue] = useState('');
   const [editing, setEditing] = useState('');
   const [editValue, setEditValue] = useState('');
@@ -117,7 +103,8 @@ function ListEditor({
   }
 
   function deleteItem(value: string) {
-    if (keepOne && items.length <= 1) {
+    // The database keeps at least one of each.
+    if (items.length <= 1) {
       setError(`Keep at least one ${label.toLowerCase()} available.`);
       return;
     }
@@ -166,7 +153,7 @@ function ListEditor({
         </label>
         <input
           id={`${kind}-new`}
-          maxLength={maxLength}
+          maxLength={MAX_LENGTH}
           onChange={(event) => setNewValue(event.currentTarget.value)}
           placeholder={`Add ${label.toLowerCase()}`}
           value={newValue}
@@ -190,7 +177,7 @@ function ListEditor({
                 </label>
                 <input
                   id={`${kind}-edit`}
-                  maxLength={maxLength}
+                  maxLength={MAX_LENGTH}
                   onChange={(event) => setEditValue(event.currentTarget.value)}
                   value={editValue}
                 />
@@ -277,23 +264,18 @@ function ListEditor({
 export default function CategoryDepartmentManager({
   lists,
   expenses,
-  payments,
   handlers,
 }: {
   lists: Record<ListKind, string[]>;
   expenses: Expense[];
-  payments: BudgetTransaction[];
   handlers: Record<ListKind, ListHandlers>;
 }) {
   const usage: Record<ListKind, (value: string) => number> = {
     category: (value) => expenses.filter((e) => e.category === value).length,
     department: (value) =>
       expenses.filter((e) => e.department === value).length,
-    payee: (value) => expenses.filter((e) => e.payee === value).length,
-    budgetPayer: (value) =>
-      payments.filter((payment) => payment.paidBy === value).length,
   };
-  const kinds: ListKind[] = ['category', 'department', 'payee', 'budgetPayer'];
+  const kinds: ListKind[] = ['category', 'department'];
 
   return (
     <section className="management-grid" aria-label="Manage lists">

@@ -4,6 +4,8 @@ import {
   AttachmentUpload,
   BudgetTransaction,
   BudgetTransactionInput,
+  Employee,
+  EmployeeInput,
   Expense,
   ExpenseAttachment,
   ExpenseInput,
@@ -11,6 +13,7 @@ import {
   LegacyImportPayload,
   LegacyImportResult,
 } from '../../shared/types';
+import { EmployeeRole } from '../../shared/employeeRoles';
 import { assertMonthsOpen } from '../../shared/months';
 import { Database, Queryable } from './database';
 
@@ -50,26 +53,22 @@ type ReceiptRow = {
   created_at: Date;
 };
 
-export type ListTable =
-  | 'categories'
-  | 'departments'
-  | 'payees'
-  | 'budget_payers';
+type EmployeeRow = {
+  id: string;
+  name: string;
+  nickname: string;
+  role: EmployeeRole;
+  iqama_no: string;
+  designation: string;
+  project_name: string;
+  phone_no: string;
+  insurance_no: string;
+  salary: number | null;
+  iqama_expiry: string | null;
+  camp_name: string;
+};
 
-/**
- * Payee lists are not foreign keys, so the app keeps the transactions that
- * use a name in step with the list (categories/departments use ON UPDATE CASCADE).
- */
-const PAYEE_LIST_USAGE = {
-  payees: { table: 'expenses', column: 'payee' },
-  budget_payers: { table: 'budget_receipts', column: 'paid_by' },
-} as const;
-
-function payeeListUsage(table: ListTable) {
-  return table === 'payees' || table === 'budget_payers'
-    ? PAYEE_LIST_USAGE[table]
-    : undefined;
-}
+export type ListTable = 'categories' | 'departments';
 
 const EXPENSE_COLUMNS = `
   id, expense_date, payee, particulars, category, department, payment_method,
@@ -80,6 +79,10 @@ const ATTACHMENT_COLUMNS = 'id, expense_id, file_name, mime_type, size_bytes';
 
 const RECEIPT_COLUMNS =
   'id, received_date, amount, paid_by, payment_method, note, created_at';
+
+const EMPLOYEE_COLUMNS = `
+  id, name, nickname, role, iqama_no, designation, project_name, phone_no,
+  insurance_no, salary, iqama_expiry, camp_name`;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -126,6 +129,23 @@ function toBudgetTransaction(row: ReceiptRow): BudgetTransaction {
     paymentMethod: row.payment_method ?? undefined,
     note: row.note,
     createdAt: row.created_at.getTime(),
+  };
+}
+
+function toEmployee(row: EmployeeRow): Employee {
+  return {
+    id: row.id,
+    name: row.name,
+    nickname: row.nickname,
+    role: row.role,
+    iqamaNo: row.iqama_no,
+    designation: row.designation,
+    projectName: row.project_name,
+    phoneNo: row.phone_no,
+    insuranceNo: row.insurance_no,
+    salary: row.salary,
+    iqamaExpiry: row.iqama_expiry ?? '',
+    campName: row.camp_name,
   };
 }
 
@@ -200,35 +220,6 @@ async function listNames(client: Queryable, table: ListTable) {
     `SELECT name FROM ${table} ORDER BY sort_order, created_at, name`,
   );
   return rows.map((row) => row.name);
-}
-
-/** Adds every payee name used by a transaction that is missing from its list. */
-export async function syncPayeeLists(client: Queryable): Promise<void> {
-  // eslint-disable-next-line no-restricted-syntax
-  for (const [table, usage] of Object.entries(PAYEE_LIST_USAGE)) {
-    // eslint-disable-next-line no-await-in-loop
-    await client.query(
-      `INSERT INTO ${table} (name, sort_order)
-       SELECT name, (SELECT coalesce(max(sort_order), 0) FROM ${table})
-                    + row_number() OVER (ORDER BY lower(name))
-       FROM (SELECT DISTINCT ON (lower(${usage.column})) ${usage.column} AS name
-             FROM ${usage.table}
-             WHERE btrim(${usage.column}) <> ''
-               AND lower(${usage.column}) NOT IN (SELECT lower(name) FROM ${table})
-             GROUP BY ${usage.column}
-             -- Keep the most used spelling, then the earliest, then capitalised.
-             ORDER BY lower(${usage.column}), count(*) DESC, min(created_at),
-                      ${usage.column} COLLATE "C") AS names`,
-    );
-    // One spelling per name, so renames and in-use checks match exactly.
-    // eslint-disable-next-line no-await-in-loop
-    await client.query(
-      `UPDATE ${usage.table} t SET ${usage.column} = l.name
-       FROM ${table} l
-       WHERE lower(t.${usage.column}) = lower(l.name)
-         AND t.${usage.column} <> l.name`,
-    );
-  }
 }
 
 /** Returns the stored spelling of `name`, creating it if it does not exist. */
@@ -317,8 +308,9 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
       );
       const categories = await listNames(client, 'categories');
       const departments = await listNames(client, 'departments');
-      const payees = await listNames(client, 'payees');
-      const budgetPayers = await listNames(client, 'budget_payers');
+      const employees = await client.query<EmployeeRow>(
+        `SELECT ${EMPLOYEE_COLUMNS} FROM employees ORDER BY lower(name), iqama_no`,
+      );
       const reopenedMonths = await listReopenedMonths(client);
       const attachmentsByExpense = new Map<string, ExpenseAttachment[]>();
       attachments.rows.forEach((row) => {
@@ -333,8 +325,7 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
         budgetTransactions: receipts.rows.map(toBudgetTransaction),
         categories,
         departments,
-        payees,
-        budgetPayers,
+        employees: employees.rows.map(toEmployee),
         reopenedMonths,
       };
     },
@@ -349,7 +340,6 @@ export function createExpense(
 ): Promise<Expense> {
   return db.transaction(async (client) => {
     await assertDatesOpen(client, [input.date]);
-    const payee = await ensureListItem(client, 'payees', input.payee);
     const { rows } = await client.query<{ id: string }>(
       `INSERT INTO expenses
          (expense_date, payee, particulars, category, department,
@@ -357,7 +347,7 @@ export function createExpense(
           amount_excluding_vat, vat)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING id`,
-      expenseParams({ ...input, payee }),
+      expenseParams(input),
     );
     await insertAttachments(client, rows[0].id, files);
     return loadExpense(client, rows[0].id);
@@ -374,7 +364,6 @@ export async function updateExpense(
   return db.transaction(async (client) => {
     const previousDate = await lockedRecordDate(client, 'expenses', id);
     await assertDatesOpen(client, [previousDate, input.date]);
-    const payee = await ensureListItem(client, 'payees', input.payee);
     await client.query(
       `UPDATE expenses SET
          expense_date = $2, payee = $3, particulars = $4, category = $5,
@@ -382,7 +371,7 @@ export async function updateExpense(
          invoice_no = $9, site_name = $10, vat_no = $11,
          amount_excluding_vat = $12, vat = $13, updated_at = now()
        WHERE id = $1`,
-      [id, ...expenseParams({ ...input, payee })],
+      [id, ...expenseParams(input)],
     );
     await insertAttachments(client, id, files);
     return loadExpense(client, id);
@@ -426,13 +415,12 @@ export function createBudgetTransaction(
 ): Promise<BudgetTransaction> {
   return db.transaction(async (client) => {
     await assertDatesOpen(client, [input.date]);
-    const paidBy = await ensureListItem(client, 'budget_payers', input.paidBy);
     const { rows } = await client.query<ReceiptRow>(
       `INSERT INTO budget_receipts
          (received_date, amount, paid_by, payment_method, note)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING ${RECEIPT_COLUMNS}`,
-      [input.date, input.amount, paidBy, input.paymentMethod, input.note],
+      [input.date, input.amount, input.paidBy, input.paymentMethod, input.note],
     );
     return toBudgetTransaction(rows[0]);
   });
@@ -447,14 +435,20 @@ export async function updateBudgetTransaction(
   return db.transaction(async (client) => {
     const previousDate = await lockedRecordDate(client, 'budget_receipts', id);
     await assertDatesOpen(client, [previousDate, input.date]);
-    const paidBy = await ensureListItem(client, 'budget_payers', input.paidBy);
     const { rows } = await client.query<ReceiptRow>(
       `UPDATE budget_receipts SET
          received_date = $2, amount = $3, paid_by = $4, payment_method = $5,
          note = $6, updated_at = now()
        WHERE id = $1
        RETURNING ${RECEIPT_COLUMNS}`,
-      [id, input.date, input.amount, paidBy, input.paymentMethod, input.note],
+      [
+        id,
+        input.date,
+        input.amount,
+        input.paidBy,
+        input.paymentMethod,
+        input.note,
+      ],
     );
     return toBudgetTransaction(rows[0]);
   });
@@ -472,6 +466,120 @@ export function deleteBudgetTransaction(
   });
 }
 
+function employeeParams(input: EmployeeInput) {
+  return [
+    input.name,
+    input.iqamaNo,
+    input.designation,
+    input.projectName,
+    input.phoneNo,
+    input.insuranceNo,
+    input.iqamaExpiry || null,
+    input.campName,
+    input.nickname,
+    input.salary,
+    input.role,
+  ];
+}
+
+/** Iqama numbers identify an employee, so two employees never share one. */
+async function assertIqamaFree(
+  client: Queryable,
+  iqamaNo: string,
+  exceptId?: string,
+) {
+  const { rows } = await client.query<{ name: string }>(
+    `SELECT name FROM employees
+     WHERE lower(iqama_no) = lower($1) AND ($2::uuid IS NULL OR id <> $2)`,
+    [iqamaNo, exceptId ?? null],
+  );
+  if (rows[0]) {
+    throw new AppError(
+      'CONFLICT',
+      `Iqama no. ${iqamaNo} already belongs to ${rows[0].name}.`,
+    );
+  }
+}
+
+export function createEmployee(
+  db: Database,
+  input: EmployeeInput,
+): Promise<Employee> {
+  return db.transaction(async (client) => {
+    await assertIqamaFree(client, input.iqamaNo);
+    const { rows } = await client.query<EmployeeRow>(
+      `INSERT INTO employees
+         (name, iqama_no, designation, project_name, phone_no, insurance_no,
+          iqama_expiry, camp_name, nickname, salary, role)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING ${EMPLOYEE_COLUMNS}`,
+      employeeParams(input),
+    );
+    return toEmployee(rows[0]);
+  });
+}
+
+/**
+ * A renamed employee's transactions follow the new name, unless another
+ * employee still has the old name (then the transactions are ambiguous).
+ */
+export function updateEmployee(
+  db: Database,
+  id: string,
+  input: EmployeeInput,
+): Promise<Employee> {
+  assertUuid(id);
+  return db.transaction(async (client) => {
+    const previous = await client.query<{ name: string }>(
+      'SELECT name FROM employees WHERE id = $1 FOR UPDATE',
+      [id],
+    );
+    if (!previous.rows[0]) {
+      throw new AppError('NOT_FOUND', 'That employee no longer exists.');
+    }
+    await assertIqamaFree(client, input.iqamaNo, id);
+    const { rows } = await client.query<EmployeeRow>(
+      `UPDATE employees SET
+         name = $2, iqama_no = $3, designation = $4, project_name = $5,
+         phone_no = $6, insurance_no = $7, iqama_expiry = $8, camp_name = $9,
+         nickname = $10, salary = $11, role = $12, updated_at = now()
+       WHERE id = $1
+       RETURNING ${EMPLOYEE_COLUMNS}`,
+      [id, ...employeeParams(input)],
+    );
+    const oldName = previous.rows[0].name;
+    if (oldName !== input.name) {
+      const shared = await client.query<{ shared: boolean }>(
+        'SELECT EXISTS (SELECT 1 FROM employees WHERE name = $1) AS shared',
+        [oldName],
+      );
+      if (!shared.rows[0].shared) {
+        await client.query(
+          `UPDATE expenses SET payee = $2, updated_at = now()
+           WHERE payee = $1`,
+          [oldName, input.name],
+        );
+        await client.query(
+          `UPDATE budget_receipts SET paid_by = $2, updated_at = now()
+           WHERE paid_by = $1`,
+          [oldName, input.name],
+        );
+      }
+    }
+    return toEmployee(rows[0]);
+  });
+}
+
+/** Transactions keep the name of a deleted employee. */
+export async function deleteEmployee(db: Database, id: string): Promise<void> {
+  assertUuid(id);
+  const { rowCount } = await db.query('DELETE FROM employees WHERE id = $1', [
+    id,
+  ]);
+  if (!rowCount)
+    throw new AppError('NOT_FOUND', 'That employee no longer exists.');
+}
+
 export async function addListItem(
   db: Database,
   table: ListTable,
@@ -484,64 +592,33 @@ export async function addListItem(
   );
 }
 
-/**
- * Category/department renames cascade through ON UPDATE CASCADE; payee
- * renames update the transactions that use the name in the same transaction.
- */
-export function renameListItem(
+/** Renames cascade to expenses through ON UPDATE CASCADE. */
+export async function renameListItem(
   db: Database,
   table: ListTable,
   previous: string,
   next: string,
 ): Promise<void> {
-  return db.transaction(async (client) => {
-    const { rowCount } = await client.query(
-      `UPDATE ${table} SET name = $2 WHERE name = $1`,
-      [previous, next],
-    );
-    if (!rowCount)
-      throw new AppError('NOT_FOUND', `"${previous}" no longer exists.`);
-    const usage = payeeListUsage(table);
-    if (usage) {
-      await client.query(
-        `UPDATE ${usage.table} SET ${usage.column} = $2, updated_at = now()
-         WHERE ${usage.column} = $1`,
-        [previous, next],
-      );
-    }
-  });
+  const { rowCount } = await db.query(
+    `UPDATE ${table} SET name = $2 WHERE name = $1`,
+    [previous, next],
+  );
+  if (!rowCount)
+    throw new AppError('NOT_FOUND', `"${previous}" no longer exists.`);
 }
 
-/**
- * Deleting a category/department that expenses still use is refused by the
- * foreign key; a payee that transactions still use is refused here.
- */
+/** Deleting an item that expenses still use is refused by the foreign key. */
 export function deleteListItem(
   db: Database,
   table: ListTable,
   name: string,
 ): Promise<void> {
   return db.transaction(async (client) => {
-    const usage = payeeListUsage(table);
-    if (usage) {
-      const { rows } = await client.query<{ used: boolean }>(
-        `SELECT EXISTS (SELECT 1 FROM ${usage.table}
-                        WHERE ${usage.column} = $1) AS used`,
-        [name],
-      );
-      if (rows[0].used) {
-        throw new AppError(
-          'IN_USE',
-          `"${name}" is still used by existing transactions. Edit those transactions first.`,
-        );
-      }
-    } else {
-      const { rows } = await client.query<{ count: string }>(
-        `SELECT count(*) AS count FROM ${table}`,
-      );
-      if (Number(rows[0].count) <= 1) {
-        throw new AppError('VALIDATION', 'Keep at least one option available.');
-      }
+    const { rows } = await client.query<{ count: string }>(
+      `SELECT count(*) AS count FROM ${table}`,
+    );
+    if (Number(rows[0].count) <= 1) {
+      throw new AppError('VALIDATION', 'Keep at least one option available.');
     }
     const { rowCount } = await client.query(
       `DELETE FROM ${table} WHERE name = $1`,
@@ -643,7 +720,6 @@ export function importLegacyData(
       );
     }
     /* eslint-enable no-restricted-syntax, no-await-in-loop */
-    await syncPayeeLists(client);
     return {
       expenses: payload.expenses.length,
       budgetTransactions: payload.budgetTransactions.length,

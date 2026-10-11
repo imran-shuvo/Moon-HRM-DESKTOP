@@ -11,6 +11,7 @@ export default function BudgetPaymentDialog({
   onSubmit,
 }: {
   payment: BudgetTransaction | undefined;
+  /** Employee names. */
   payers: string[];
   onClose: () => void;
   onSubmit: (payment: BudgetTransactionInput) => Promise<void>;
@@ -112,11 +113,9 @@ export default function BudgetPaymentDialog({
               defaultValue={payment?.paidBy ?? ''}
               id="budget-payment-paid-by"
               label="Received from"
-              maxLength={100}
               name="paidBy"
-              newOptionLabel="New payee name"
+              emptyLabel="Choose an employee"
               options={payers}
-              placeholder="Person or company"
             />
             <label className="form-field" htmlFor="budget-payment-method">
               Budget payment method

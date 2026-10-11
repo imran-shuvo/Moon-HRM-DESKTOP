@@ -146,6 +146,53 @@ export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
       );
     `,
   },
+  {
+    version: 4,
+    name: 'employees',
+    sql: `
+      -- An expense's "Paid to" and a budget payment's payee are now picked
+      -- from employees, which replace the separate payee lists. Names already
+      -- stored on transactions are kept as they are.
+      CREATE TABLE employees (
+        id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name           TEXT NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 100),
+        iqama_no       TEXT NOT NULL CHECK (length(btrim(iqama_no)) BETWEEN 1 AND 30),
+        designation    TEXT NOT NULL DEFAULT '',
+        project_name   TEXT NOT NULL DEFAULT '',
+        phone_no       TEXT NOT NULL DEFAULT '',
+        insurance_no   TEXT NOT NULL DEFAULT '',
+        iqama_expiry   DATE,
+        camp_name      TEXT NOT NULL DEFAULT '',
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX employees_iqama_no_ci_idx ON employees (lower(iqama_no));
+      CREATE INDEX employees_name_idx ON employees (lower(name));
+
+      DROP TABLE payees;
+      DROP TABLE budget_payers;
+    `,
+  },
+  {
+    version: 5,
+    name: 'employee nickname and salary',
+    sql: `
+      ALTER TABLE employees
+        ADD COLUMN nickname TEXT NOT NULL DEFAULT '',
+        ADD COLUMN salary   NUMERIC(14, 2) CHECK (salary >= 0);
+    `,
+  },
+  {
+    version: 6,
+    name: 'employee role',
+    sql: `
+      ALTER TABLE employees
+        ADD COLUMN role TEXT NOT NULL DEFAULT 'company_worker'
+          CHECK (role IN ('company_worker', 'outsource_worker', 'staff',
+                          'outsource_camp_worker'));
+      CREATE INDEX employees_role_idx ON employees (role);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

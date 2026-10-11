@@ -3,6 +3,7 @@ import {
   AttachmentUpload,
   BudgetTransactionInput,
   DatabaseStatus,
+  EmployeeInput,
   ExpenseInput,
   FinanceApi,
   FinanceSnapshot,
@@ -10,14 +11,17 @@ import {
 import {
   Budget,
   BudgetTransaction,
+  Employee,
   Expense,
   Section,
+  employeeNames,
   formatCurrency,
   calculateBudgetForPeriod,
   getExpenseTotal,
   getMonthDateRange,
   getMonthlyExpenseSummaries,
   inDateRange,
+  isIqamaExpiring,
   matchesSearch,
   plural,
   withSerialNumbers,
@@ -37,6 +41,11 @@ import ReportPanel from './expenses/components/ReportPanel';
 import OverviewPanel from './expenses/components/OverviewPanel';
 import BudgetManagementPanel from './expenses/components/BudgetManagementPanel';
 import BudgetPaymentDialog from './expenses/components/BudgetPaymentDialog';
+import EmployeePanel from './expenses/components/EmployeePanel';
+import EmployeeDialog from './expenses/components/EmployeeDialog';
+import EmployeePrintableReport, {
+  PrintableEmployeeReportData,
+} from './expenses/components/EmployeePrintableReport';
 import ConfirmDialog from './expenses/components/ConfirmDialog';
 import BudgetPrintableReport, {
   PrintableBudgetReportData,
@@ -62,8 +71,7 @@ const EMPTY_SNAPSHOT: FinanceSnapshot = {
   budgetTransactions: [],
   categories: [],
   departments: [],
-  payees: [],
-  budgetPayers: [],
+  employees: [],
   reopenedMonths: [],
 };
 
@@ -94,19 +102,52 @@ async function toUploads(files: File[]): Promise<AttachmentUpload[]> {
   );
 }
 
-/** Adds `name` unless the list already has it (ignoring case). */
-function withName(list: string[], name: string | undefined) {
-  if (!name || list.some((item) => item.toLowerCase() === name.toLowerCase()))
-    return list;
-  return [...list, name];
-}
-
 const LIST_KEYS = {
   category: 'categories',
   department: 'departments',
-  payee: 'payees',
-  budgetPayer: 'budgetPayers',
 } as const satisfies Record<ListKind, keyof FinanceApi>;
+
+function upsert<T extends { id: string }>(items: T[], item: T): T[] {
+  return items.some((existing) => existing.id === item.id)
+    ? items.map((existing) => (existing.id === item.id ? item : existing))
+    : [item, ...items];
+}
+
+const byName = (a: Employee, b: Employee) =>
+  a.name.localeCompare(b.name) || a.iqamaNo.localeCompare(b.iqamaNo);
+
+/**
+ * Mirrors on loaded transactions an employee rename the database applied:
+ * transactions follow the new name unless another employee has the old one.
+ */
+function renameEmployeeInSnapshot(
+  data: FinanceSnapshot,
+  saved: Employee,
+): FinanceSnapshot {
+  const previous = data.employees.find((item) => item.id === saved.id);
+  const employees = upsert(data.employees, saved).sort(byName);
+  if (
+    !previous ||
+    previous.name === saved.name ||
+    employees.some((item) => item.name === previous.name)
+  ) {
+    return { ...data, employees };
+  }
+  return {
+    ...data,
+    employees,
+    expenses: data.expenses.map((expense) =>
+      expense.payee === previous.name
+        ? { ...expense, payee: saved.name }
+        : expense,
+    ),
+    budgetTransactions: data.budgetTransactions.map((payment) =>
+      payment.paidBy === previous.name
+        ? { ...payment, paidBy: saved.name }
+        : payment,
+    ),
+  };
+}
 
 /** Mirrors on loaded transactions a rename the database applied to them. */
 function renameInSnapshot(
@@ -127,7 +168,7 @@ function renameInSnapshot(
             : expense,
         ),
       };
-    case 'department':
+    default:
       return {
         ...data,
         expenses: data.expenses.map((expense) => ({
@@ -135,29 +176,7 @@ function renameInSnapshot(
           department: rename(expense.department) ?? '',
         })),
       };
-    case 'payee':
-      return {
-        ...data,
-        expenses: data.expenses.map((expense) => ({
-          ...expense,
-          payee: rename(expense.payee) ?? '',
-        })),
-      };
-    default:
-      return {
-        ...data,
-        budgetTransactions: data.budgetTransactions.map((payment) => ({
-          ...payment,
-          paidBy: rename(payment.paidBy),
-        })),
-      };
   }
-}
-
-function upsert<T extends { id: string }>(items: T[], item: T): T[] {
-  return items.some((existing) => existing.id === item.id)
-    ? items.map((existing) => (existing.id === item.id ? item : existing))
-    : [item, ...items];
 }
 
 const CATEGORY_COLORS = [
@@ -183,6 +202,10 @@ const TITLES: Record<Section, { title: string; subtitle: string }> = {
   Budgets: {
     title: 'Budgets',
     subtitle: 'Review every budget received by the company.',
+  },
+  Employees: {
+    title: 'Employees',
+    subtitle: 'Staff details and Iqama expiry dates at a glance.',
   },
   Reports: {
     title: 'Reports',
@@ -211,8 +234,8 @@ export default function App({ api }: { api: FinanceApi }) {
     kind: 'ok' | 'error';
     text: string;
   }>();
-  const { categories, departments, payees, budgetPayers, reopenedMonths } =
-    data;
+  const { categories, departments, employees, reopenedMonths } = data;
+  const employeeNameList = useMemo(() => employeeNames(employees), [employees]);
   const [viewMonth, setViewMonth] = useState(monthKey());
   const expenses = useMemo(
     () => withSerialNumbers(data.expenses),
@@ -228,6 +251,8 @@ export default function App({ api }: { api: FinanceApi }) {
     useState<PrintableBudgetReportData>();
   const [printExpenseReport, setPrintExpenseReport] =
     useState<PrintableExpenseReportData>();
+  const [printEmployeeReport, setPrintEmployeeReport] =
+    useState<PrintableEmployeeReportData>();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense>();
   const [selectedExpense, setSelectedExpense] = useState<Expense>();
@@ -235,6 +260,9 @@ export default function App({ api }: { api: FinanceApi }) {
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<BudgetTransaction>();
   const [paymentToDelete, setPaymentToDelete] = useState<BudgetTransaction>();
+  const [employeeDialogOpen, setEmployeeDialogOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee>();
+  const [employeeToDelete, setEmployeeToDelete] = useState<Employee>();
   const [deleting, setDeleting] = useState(false);
   const [search, setSearch] = useState('');
   const [transactionFrom, setTransactionFrom] = useState('');
@@ -387,11 +415,19 @@ export default function App({ api }: { api: FinanceApi }) {
     [],
   );
 
+  const prepareEmployeePdfExport = useCallback(
+    (report: PrintableEmployeeReportData) => {
+      setPrintEmployeeReport(report);
+    },
+    [],
+  );
+
   // Once the printable report is mounted, the main process saves it as a PDF.
   useEffect(() => {
     const fileName =
       printBudgetReport?.fileName ??
       printExpenseReport?.fileName ??
+      printEmployeeReport?.fileName ??
       printReport?.fileName;
     if (!fileName) return undefined;
 
@@ -414,6 +450,7 @@ export default function App({ api }: { api: FinanceApi }) {
           setPrintReport(undefined);
           setPrintBudgetReport(undefined);
           setPrintExpenseReport(undefined);
+          setPrintEmployeeReport(undefined);
         }
       }
     }, 100);
@@ -421,7 +458,13 @@ export default function App({ api }: { api: FinanceApi }) {
       active = false;
       window.clearTimeout(timeout);
     };
-  }, [api, printReport, printBudgetReport, printExpenseReport]);
+  }, [
+    api,
+    printReport,
+    printBudgetReport,
+    printExpenseReport,
+    printEmployeeReport,
+  ]);
 
   // The sidebar always shows the current month's budget.
   const { start: currentMonthStart, end: currentMonthEnd } =
@@ -502,8 +545,6 @@ export default function App({ api }: { api: FinanceApi }) {
       setData((current) => ({
         ...current,
         expenses: upsert(current.expenses, saved),
-        // A new "Paid to" name is added to the saved list by the database.
-        payees: withName(current.payees, saved.payee),
       }));
       setEditingExpense(undefined);
       setDialogOpen(false);
@@ -588,7 +629,6 @@ export default function App({ api }: { api: FinanceApi }) {
       setData((current) => ({
         ...current,
         budgetTransactions: upsert(current.budgetTransactions, saved),
-        budgetPayers: withName(current.budgetPayers, saved.paidBy),
       }));
       setEditingPayment(undefined);
       setPaymentDialogOpen(false);
@@ -624,8 +664,56 @@ export default function App({ api }: { api: FinanceApi }) {
     setExpenseToDelete(undefined);
   }, []);
 
-  // Category/department renames cascade in the database, payee renames are
-  // applied by it too; mirror either locally.
+  const openEmployeeDialog = useCallback((employee?: Employee) => {
+    setEditingEmployee(employee);
+    setEmployeeDialogOpen(true);
+  }, []);
+
+  const closeEmployeeDialog = useCallback(() => {
+    setEmployeeDialogOpen(false);
+    setEditingEmployee(undefined);
+  }, []);
+
+  const saveEmployee = useCallback(
+    async (input: EmployeeInput) => {
+      const saved = editingEmployee
+        ? await api.employees.update(editingEmployee.id, input)
+        : await api.employees.create(input);
+      setData((current) => renameEmployeeInSnapshot(current, saved));
+      closeEmployeeDialog();
+    },
+    [api, editingEmployee, closeEmployeeDialog],
+  );
+
+  const requestDeleteEmployee = useCallback((employee: Employee) => {
+    setEmployeeDialogOpen(false);
+    setEditingEmployee(undefined);
+    setEmployeeToDelete(employee);
+  }, []);
+
+  const confirmDeleteEmployee = useCallback(async () => {
+    if (!employeeToDelete) return;
+    setDeleting(true);
+    try {
+      await api.employees.remove(employeeToDelete.id);
+      setData((current) => ({
+        ...current,
+        employees: current.employees.filter(
+          (item) => item.id !== employeeToDelete.id,
+        ),
+      }));
+    } catch (error) {
+      setAppMessage({
+        kind: 'error',
+        text: errorMessage(error, 'The employee could not be deleted.'),
+      });
+    } finally {
+      setEmployeeToDelete(undefined);
+      setDeleting(false);
+    }
+  }, [api, employeeToDelete]);
+
+  // Category/department renames cascade in the database; mirror them locally.
   const listHandlers = useMemo(() => {
     const handlers = {} as Record<ListKind, ListHandlers>;
     (Object.keys(LIST_KEYS) as ListKind[]).forEach((kind) => {
@@ -752,6 +840,9 @@ export default function App({ api }: { api: FinanceApi }) {
           onSelect={setSection}
           section={section}
           transactionCount={expenses.length}
+          expiringIqamaCount={
+            employees.filter((employee) => isIqamaExpiring(employee)).length
+          }
         />
         <main className="main-content">
           <header className="topbar">
@@ -824,6 +915,17 @@ export default function App({ api }: { api: FinanceApi }) {
                   </button>
                 </div>
               )}
+              {section === 'Employees' && (
+                <div className="heading-actions">
+                  <button
+                    className="button button-primary"
+                    onClick={() => openEmployeeDialog()}
+                    type="button"
+                  >
+                    <span aria-hidden="true">＋</span> Add employee
+                  </button>
+                </div>
+              )}
             </section>
 
             {appMessage && (
@@ -893,7 +995,7 @@ export default function App({ api }: { api: FinanceApi }) {
                 search={search}
                 payees={[
                   ...new Set([
-                    ...payees,
+                    ...employeeNameList,
                     ...expenses.map((expense) => expense.payee),
                   ]),
                 ].sort((a, b) => a.localeCompare(b))}
@@ -909,12 +1011,20 @@ export default function App({ api }: { api: FinanceApi }) {
             {section === 'Budgets' && (
               <BudgetManagementPanel
                 payments={budgetTransactions}
-                payers={budgetPayers}
+                payers={employeeNameList}
                 isDateClosed={isDateClosed}
                 onAddPayment={openBudgetPaymentDialog}
                 onEditPayment={openEditBudgetPayment}
                 onDeletePayment={requestDeleteBudgetPayment}
                 onExportPdf={prepareBudgetPdfExport}
+              />
+            )}
+
+            {section === 'Employees' && (
+              <EmployeePanel
+                employees={employees}
+                onSelect={openEmployeeDialog}
+                onExportPdf={prepareEmployeePdfExport}
               />
             )}
 
@@ -937,11 +1047,8 @@ export default function App({ api }: { api: FinanceApi }) {
                   lists={{
                     category: categories,
                     department: departments,
-                    payee: payees,
-                    budgetPayer: budgetPayers,
                   }}
                   expenses={expenses}
-                  payments={budgetTransactions}
                   handlers={listHandlers}
                 />
                 <MonthClosingPanel
@@ -985,17 +1092,40 @@ export default function App({ api }: { api: FinanceApi }) {
             onSubmit={saveExpense}
             categories={categories}
             departments={departments}
-            payees={payees}
+            payees={employeeNameList}
             expense={editingExpense}
           />
         )}
         {paymentDialogOpen && (
           <BudgetPaymentDialog
             payment={editingPayment}
-            payers={budgetPayers}
+            payers={employeeNameList}
             onClose={closeBudgetPaymentDialog}
             onSubmit={saveBudgetPayment}
           />
+        )}
+        {employeeDialogOpen && (
+          <EmployeeDialog
+            employee={editingEmployee}
+            onClose={closeEmployeeDialog}
+            onSubmit={saveEmployee}
+            onDelete={requestDeleteEmployee}
+          />
+        )}
+        {employeeToDelete && (
+          <ConfirmDialog
+            id="delete-employee"
+            eyebrow="DELETE EMPLOYEE"
+            title={`Delete ${employeeToDelete.name}?`}
+            confirmLabel="Delete employee"
+            danger
+            busy={deleting}
+            onCancel={() => setEmployeeToDelete(undefined)}
+            onConfirm={confirmDeleteEmployee}
+          >
+            {employeeToDelete.name} (Iqama no. {employeeToDelete.iqamaNo}) will
+            be removed. Transactions already saved with this name keep it.
+          </ConfirmDialog>
         )}
         {selectedExpense && (
           <ExpenseDetailsDialog
@@ -1042,6 +1172,9 @@ export default function App({ api }: { api: FinanceApi }) {
       {printBudgetReport && <BudgetPrintableReport data={printBudgetReport} />}
       {printExpenseReport && (
         <ExpensePrintableReport data={printExpenseReport} />
+      )}
+      {printEmployeeReport && (
+        <EmployeePrintableReport data={printEmployeeReport} />
       )}
     </FinanceApiProvider>
   );

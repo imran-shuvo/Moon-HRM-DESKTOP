@@ -15,6 +15,7 @@ export default function ExpenseDialog({
   onSubmit: (input: ExpenseInput, files: File[]) => Promise<void>;
   categories: string[];
   departments: string[];
+  /** Employee names. */
   payees: string[];
   expense: Expense | undefined;
 }) {
@@ -143,11 +144,9 @@ export default function ExpenseDialog({
               defaultValue={expense?.payee ?? ''}
               id="expense-payee"
               label="Paid to"
-              maxLength={100}
               name="payee"
-              newOptionLabel="New paid to name"
+              emptyLabel="Choose an employee"
               options={payees}
-              placeholder="Vendor or recipient name"
             />
             <label
               className="form-field field-wide"

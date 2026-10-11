@@ -1,3 +1,5 @@
+import type { EmployeeRole } from './employeeRoles';
+
 /**
  * Types shared by the main process (database, backups) and the renderer (UI).
  * Anything that crosses the IPC boundary must be defined here.
@@ -62,6 +64,26 @@ export type ExpenseInput = {
   vat: number;
 };
 
+export type Employee = {
+  id: string;
+  name: string;
+  nickname: string;
+  role: EmployeeRole;
+  iqamaNo: string;
+  designation: string;
+  projectName: string;
+  phoneNo: string;
+  insuranceNo: string;
+  /** Monthly salary in SAR, or null when not recorded. */
+  salary: number | null;
+  /** 'YYYY-MM-DD', or '' when not recorded. */
+  iqamaExpiry: string;
+  campName: string;
+};
+
+/** Fields the user edits for an employee. */
+export type EmployeeInput = Omit<Employee, 'id'>;
+
 export type BudgetTransactionInput = {
   date: string;
   amount: number;
@@ -87,10 +109,8 @@ export type FinanceSnapshot = {
   budgetTransactions: BudgetTransaction[];
   categories: string[];
   departments: string[];
-  /** Options for an expense's "Paid to". */
-  payees: string[];
-  /** Options for who a budget payment was received from. */
-  budgetPayers: string[];
+  /** Also the options for an expense's "Paid to" and a budget's payee. */
+  employees: Employee[];
   /** Past months ('YYYY-MM') reopened for corrections; others are closed. */
   reopenedMonths: string[];
 };
@@ -141,6 +161,7 @@ export type BackupCounts = {
   budgetTransactions: number;
   categories: number;
   departments: number;
+  employees: number;
 };
 
 export type BackupFileInfo = {
@@ -203,10 +224,13 @@ export type FinanceApi = {
     ) => Promise<BudgetTransaction>;
     remove: (id: string) => Promise<void>;
   };
+  employees: {
+    create: (input: EmployeeInput) => Promise<Employee>;
+    update: (id: string, input: EmployeeInput) => Promise<Employee>;
+    remove: (id: string) => Promise<void>;
+  };
   categories: ListApi;
   departments: ListApi;
-  payees: ListApi;
-  budgetPayers: ListApi;
   months: {
     /** Makes a closed month editable again. */
     reopen: (month: string) => Promise<void>;

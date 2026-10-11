@@ -28,6 +28,7 @@ button { cursor: pointer; }
 .nav-icon { display: inline-grid; width: 19px; place-items: center; color: #a5a6bb; font-size: 17px; }
 .nav-item.active .nav-icon { color: #d0bbff; }
 .nav-count { margin-left: auto; border-radius: 5px; padding: 3px 7px; color: #d9d8e6; background: #45465f; font-size: 10px; }
+.nav-count-alert { color: #fff; background: #c04e57; }
 .sidebar-bottom { margin-top: auto; }
 .budget-widget { margin: 0 2px 14px; border: 1px solid #373950; border-radius: 9px; padding: 15px 13px 13px; background: #272940; }
 .budget-widget-title { display: flex; justify-content: space-between; color: #b5b7c8; font-size: 10px; }
@@ -151,6 +152,33 @@ h1 { margin-bottom: 5px; font: 700 25px 'Manrope', sans-serif; letter-spacing: -
 .transaction-row-button { border: 0; padding: 0; color: #393a49; background: transparent; font-size: inherit; font-weight: 600; text-align: left; }
 .transaction-row-button:hover { color: #7164d9; text-decoration: underline; }
 .particulars-cell { max-width: 350px; overflow: hidden; text-overflow: ellipsis; }
+.employee-panel { overflow: visible; }
+.employee-table { min-width: 860px; }
+.expense-table tbody tr.iqama-expiring, .expense-table tbody tr.iqama-expiring:hover { background: #fdf0f1; }
+.expense-table tr.iqama-expiring td, .expense-table tr.iqama-expiring .transaction-row-button,
+.expense-table tr.iqama-expiring .date-cell { color: #b3343f !important; font-weight: 600; }
+.iqama-note { display: block; margin-top: 2px; font-size: 8px; font-weight: 500; }
+.employee-delete { margin-right: auto; }
+.multi-select { position: relative; }
+.multi-select > summary {
+  display: flex; min-width: 150px; height: 34px; align-items: center; justify-content: space-between; gap: 8px;
+  border: 1px solid #e5e5ec; border-radius: 6px; padding: 0 9px; color: #4a4b59; background: #fff;
+  font-size: 11px; list-style: none; cursor: pointer;
+}
+.multi-select > summary::-webkit-details-marker { display: none; }
+.multi-select > summary::after { content: '▾'; color: #9a9ba6; font-size: 9px; }
+.multi-select[open] > summary { border-color: #8a80e2; box-shadow: 0 0 0 2px #8276df1c; }
+.multi-select-menu {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; display: flex; min-width: 200px; flex-direction: column;
+  gap: 2px; margin: 0; border: 1px solid #e5e5ec; border-radius: 8px; padding: 6px; background: #fff;
+  box-shadow: 0 8px 24px #1e1f3a1f;
+}
+.multi-select-menu label {
+  display: flex; align-items: center; gap: 8px; border-radius: 5px; padding: 6px 8px; color: #4a4b59;
+  font-size: 11px; white-space: nowrap; cursor: pointer;
+}
+.multi-select-menu label:hover { background: #f5f4fd; }
+.multi-select-menu input { accent-color: #7164d9; }
 .page-footer { margin-top: 20px; color: #a1a2ac; text-align: center; font-size: 8px; }
 .page-footer span { padding: 0 5px; }
 .page-footer .storage-error { color: #bd565d; }
@@ -514,6 +542,14 @@ h1 { margin-bottom: 5px; font: 700 25px 'Manrope', sans-serif; letter-spacing: -
   .moon-report-expenses th:nth-child(2) { width: 14.5%; }
   .moon-report-expenses th:nth-child(3) { width: 23.5%; }
   .moon-report-expenses th:nth-child(5) { width: 17%; }
+  .moon-report-employees th, .moon-report-employees td { padding: 6px 6px; font-size: 8.5pt; }
+  .moon-report-employees th:nth-child(1) { width: 6%; }
+  .moon-report-employees th:nth-child(2) { width: 17%; }
+  .moon-report-employees th:nth-child(3) { width: 12%; }
+  .moon-report-employees th:nth-child(4) { width: 12%; }
+  .moon-report-employees th:nth-child(7) { width: 11.5%; }
+  .moon-report-employees th:nth-child(8) { width: 11.5%; }
+  .moon-report-employees tbody tr.iqama-expiring td { color: #b3343f; font-weight: 700; }
   .moon-report-summary { width: 61%; }
   .moon-report-summary tfoot th, .moon-report-summary tfoot td { font-size: 12pt; }
   .moon-report-summary tfoot td { color: #222; }

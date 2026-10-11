@@ -5,6 +5,8 @@ import {
   BackupSettings,
   BudgetTransaction,
   BudgetTransactionInput,
+  Employee,
+  EmployeeInput,
   Expense,
   ExpenseInput,
   FinanceApi,
@@ -14,8 +16,8 @@ import {
 import {
   listName,
   pastMonth,
-  payeeName,
   validateBudgetTransactionInput,
+  validateEmployeeInput,
   validateExpenseInput,
   validateUploads,
 } from '../shared/validation';
@@ -64,16 +66,6 @@ function toExpense(
   };
 }
 
-/** Distinct non-empty names, first spelling wins, ignoring case. */
-function distinctNames(names: (string | undefined)[]) {
-  const seen = new Map<string, string>();
-  names.forEach((name) => {
-    if (name && !seen.has(name.toLowerCase()))
-      seen.set(name.toLowerCase(), name);
-  });
-  return [...seen.values()].sort((a, b) => a.localeCompare(b));
-}
-
 function toPayment(
   id: string,
   input: BudgetTransactionInput,
@@ -92,14 +84,7 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
     budgetTransactions: [...(seed.budgetTransactions ?? [])],
     categories: [...(seed.categories ?? DEFAULT_CATEGORIES)],
     departments: [...(seed.departments ?? DEFAULT_DEPARTMENTS)],
-    payees:
-      seed.payees ??
-      distinctNames((seed.expenses ?? []).map((expense) => expense.payee)),
-    budgetPayers:
-      seed.budgetPayers ??
-      distinctNames(
-        (seed.budgetTransactions ?? []).map((payment) => payment.paidBy),
-      ),
+    employees: [...(seed.employees ?? [])],
     reopenedMonths: [...(seed.reopenedMonths ?? [])],
   };
   const assertOpen = (...dates: string[]) =>
@@ -139,9 +124,9 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
     }
   }
 
-  type ListKey = 'categories' | 'departments' | 'payees' | 'budgetPayers';
+  type ListKey = 'categories' | 'departments';
 
-  /** Same rules as the database: payee lists have no foreign keys. */
+  /** Same rules as the database. */
   const LISTS: Record<
     ListKey,
     {
@@ -171,36 +156,40 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
         );
       },
     },
-    payees: {
-      label: 'Paid to',
-      validate: payeeName,
-      isUsed: (name) => state.expenses.some((e) => e.payee === name),
-      rename: (previous, next) => {
-        state.expenses = state.expenses.map((e) =>
-          e.payee === previous ? { ...e, payee: next } : e,
-        );
-      },
-    },
-    budgetPayers: {
-      label: 'Payee',
-      validate: payeeName,
-      isUsed: (name) => state.budgetTransactions.some((p) => p.paidBy === name),
-      rename: (previous, next) => {
-        state.budgetTransactions = state.budgetTransactions.map((p) =>
-          p.paidBy === previous ? { ...p, paidBy: next } : p,
-        );
-      },
-    },
   };
 
-  /** Returns the stored spelling of `name`, adding it if it is new. */
-  function ensureListItem(key: 'payees' | 'budgetPayers', name: string) {
-    const existing = state[key].find(
-      (item) => item.toLowerCase() === name.toLowerCase(),
+  /** Same rules as the database: Iqama numbers are unique. */
+  function saveEmployee(id: string, rawInput: EmployeeInput): Employee {
+    const input = validateEmployeeInput(rawInput);
+    const owner = state.employees.find(
+      (item) =>
+        item.id !== id &&
+        item.iqamaNo.toLowerCase() === input.iqamaNo.toLowerCase(),
     );
-    if (existing) return existing;
-    state[key] = [...state[key], name];
-    return name;
+    if (owner) {
+      throw new AppError(
+        'CONFLICT',
+        `Iqama no. ${input.iqamaNo} already belongs to ${owner.name}.`,
+      );
+    }
+    const previous = state.employees.find((item) => item.id === id);
+    const employee = { id, ...input };
+    state.employees = previous
+      ? state.employees.map((item) => (item.id === id ? employee : item))
+      : [...state.employees, employee];
+    if (
+      previous &&
+      previous.name !== employee.name &&
+      !state.employees.some((item) => item.name === previous.name)
+    ) {
+      state.expenses = state.expenses.map((e) =>
+        e.payee === previous.name ? { ...e, payee: employee.name } : e,
+      );
+      state.budgetTransactions = state.budgetTransactions.map((p) =>
+        p.paidBy === previous.name ? { ...p, paidBy: employee.name } : p,
+      );
+    }
+    return { ...employee };
   }
 
   function listApi(key: ListKey): ListApi {
@@ -231,8 +220,7 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
             'This item is still used by existing transactions. Edit those transactions first.',
           );
         }
-        const isPayeeList = key === 'payees' || key === 'budgetPayers';
-        if (!isPayeeList && state[key].length <= 1) {
+        if (state[key].length <= 1) {
           throw new AppError(
             'VALIDATION',
             'Keep at least one option available.',
@@ -271,7 +259,6 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
         const input = validateExpenseInput(rawInput);
         checkCategory(input);
         assertOpen(input.date);
-        input.payee = ensureListItem('payees', input.payee);
         const expense = toExpense(newId(), input);
         expense.attachments = storeFiles(validateUploads(rawFiles));
         state.expenses = [expense, ...state.expenses];
@@ -282,7 +269,6 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
         checkCategory(input);
         const previous = findExpense(id);
         assertOpen(previous.date, input.date);
-        input.payee = ensureListItem('payees', input.payee);
         const expense = toExpense(id, input, previous);
         expense.attachments = [
           ...(previous.attachments ?? []),
@@ -308,7 +294,6 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
       create: async (rawInput) => {
         const input = validateBudgetTransactionInput(rawInput);
         assertOpen(input.date);
-        input.paidBy = ensureListItem('budgetPayers', input.paidBy);
         const payment = toPayment(newId(), input);
         state.budgetTransactions = [payment, ...state.budgetTransactions];
         return { ...payment };
@@ -325,7 +310,6 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
         }
         const input = validateBudgetTransactionInput(rawInput);
         assertOpen(previous.date, input.date);
-        input.paidBy = ensureListItem('budgetPayers', input.paidBy);
         const payment = toPayment(id, input, previous);
         state.budgetTransactions = state.budgetTransactions.map((item) =>
           item.id === id ? payment : item,
@@ -340,10 +324,20 @@ export default function createMemoryApi(seed: Partial<FinanceSnapshot> = {}) {
         );
       },
     },
+    employees: {
+      create: async (input) => saveEmployee(newId(), input),
+      update: async (id, input) => {
+        if (!state.employees.some((item) => item.id === id)) {
+          throw new AppError('NOT_FOUND', 'That employee no longer exists.');
+        }
+        return saveEmployee(id, input);
+      },
+      remove: async (id) => {
+        state.employees = state.employees.filter((item) => item.id !== id);
+      },
+    },
     categories: listApi('categories'),
     departments: listApi('departments'),
-    payees: listApi('payees'),
-    budgetPayers: listApi('budgetPayers'),
     months: {
       reopen: async (rawMonth) => {
         const month = pastMonth(rawMonth, monthKey());

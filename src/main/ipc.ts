@@ -17,10 +17,10 @@ import { IpcResult } from '../shared/types';
 import {
   listName,
   pastMonth,
-  payeeName,
   recordId,
   validateBudgetTransactionInput,
   validateConnectionSettings,
+  validateEmployeeInput,
   validateExpenseInput,
   validateLegacyPayload,
   validateUploads,
@@ -197,6 +197,16 @@ export default function registerIpcHandlers({
     repository.deleteBudgetTransaction(db(), recordId(id)),
   );
 
+  handle(IPC.employeeCreate, (input: unknown) =>
+    repository.createEmployee(db(), validateEmployeeInput(input)),
+  );
+  handle(IPC.employeeUpdate, (id: unknown, input: unknown) =>
+    repository.updateEmployee(db(), recordId(id), validateEmployeeInput(input)),
+  );
+  handle(IPC.employeeDelete, (id: unknown) =>
+    repository.deleteEmployee(db(), recordId(id)),
+  );
+
   (
     [
       [
@@ -214,22 +224,6 @@ export default function registerIpcHandlers({
         IPC.departmentAdd,
         IPC.departmentRename,
         IPC.departmentDelete,
-      ],
-      [
-        'payees',
-        'Paid to',
-        payeeName,
-        IPC.payeeAdd,
-        IPC.payeeRename,
-        IPC.payeeDelete,
-      ],
-      [
-        'budget_payers',
-        'Payee',
-        payeeName,
-        IPC.budgetPayerAdd,
-        IPC.budgetPayerRename,
-        IPC.budgetPayerDelete,
       ],
     ] as const
   ).forEach(([table, label, name, add, rename, remove]) => {

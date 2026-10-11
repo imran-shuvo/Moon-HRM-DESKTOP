@@ -1,6 +1,5 @@
 import { BackupCounts } from '../../shared/types';
 import { Database } from '../db/database';
-import { syncPayeeLists } from '../db/repository';
 import { BackupData, countRecords } from './backupFormat';
 
 /** Reads every table in one consistent snapshot. */
@@ -15,12 +14,6 @@ export function readBackupData(db: Database): Promise<BackupData> {
       );
       const departments = await client.query<ListRow>(
         'SELECT name, sort_order, created_at FROM departments ORDER BY sort_order, name',
-      );
-      const payees = await client.query<ListRow>(
-        'SELECT name, sort_order, created_at FROM payees ORDER BY sort_order, name',
-      );
-      const budgetPayers = await client.query<ListRow>(
-        'SELECT name, sort_order, created_at FROM budget_payers ORDER BY sort_order, name',
       );
       const expenses = await client.query(
         `SELECT id, expense_date, payee, particulars, category, department,
@@ -37,6 +30,12 @@ export function readBackupData(db: Database): Promise<BackupData> {
         `SELECT id, received_date, amount, paid_by, payment_method, note,
                 created_at, updated_at
          FROM budget_receipts ORDER BY received_date, created_at`,
+      );
+      const employees = await client.query(
+        `SELECT id, name, iqama_no, designation, project_name, phone_no,
+                insurance_no, iqama_expiry, camp_name, created_at, updated_at,
+                nickname, salary, role
+         FROM employees ORDER BY created_at, id`,
       );
       const listItem = (row: ListRow) => ({
         name: row.name,
@@ -82,8 +81,22 @@ export function readBackupData(db: Database): Promise<BackupData> {
           createdAt: iso(row.created_at),
           updatedAt: iso(row.updated_at),
         })),
-        payees: payees.rows.map(listItem),
-        budgetPayers: budgetPayers.rows.map(listItem),
+        employees: employees.rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          iqamaNo: row.iqama_no,
+          designation: row.designation,
+          projectName: row.project_name,
+          phoneNo: row.phone_no,
+          insuranceNo: row.insurance_no,
+          iqamaExpiry: row.iqama_expiry,
+          campName: row.camp_name,
+          createdAt: iso(row.created_at),
+          updatedAt: iso(row.updated_at),
+          nickname: row.nickname,
+          salary: row.salary,
+          role: row.role,
+        })),
       };
     },
     { isolation: 'REPEATABLE READ' },
@@ -101,14 +114,12 @@ export function restoreBackupData(
   return db.transaction(async (client) => {
     await client.query(
       `TRUNCATE expense_attachments, expenses, budget_receipts, categories,
-                departments, payees, budget_payers`,
+                departments, employees`,
     );
     const json = (rows: unknown[]) => JSON.stringify(rows);
     const lists = [
       ['categories', data.categories],
       ['departments', data.departments],
-      ['payees', data.payees ?? []],
-      ['budget_payers', data.budgetPayers ?? []],
     ] as const;
     // eslint-disable-next-line no-restricted-syntax
     for (const [table, items] of lists) {
@@ -168,8 +179,23 @@ export function restoreBackupData(
          "createdAt" timestamptz, "updatedAt" timestamptz)`,
       [json(data.budgetReceipts)],
     );
-    // Older backups have no payee lists; build them from the transactions.
-    await syncPayeeLists(client);
+    // Older backups have no employees.
+    await client.query(
+      `INSERT INTO employees
+         (id, name, iqama_no, designation, project_name, phone_no,
+          insurance_no, iqama_expiry, camp_name, created_at, updated_at,
+          nickname, salary, role)
+       SELECT id, name, "iqamaNo", designation, "projectName", "phoneNo",
+              "insuranceNo", "iqamaExpiry", "campName", "createdAt", "updatedAt",
+              coalesce(nickname, ''), salary, coalesce(role, 'company_worker')
+       FROM jsonb_to_recordset($1::jsonb) AS x(
+         id uuid, name text, "iqamaNo" text, designation text,
+         "projectName" text, "phoneNo" text, "insuranceNo" text,
+         "iqamaExpiry" date, "campName" text,
+         "createdAt" timestamptz, "updatedAt" timestamptz,
+         nickname text, salary numeric, role text)`,
+      [json(data.employees ?? [])],
+    );
     return countRecords(data);
   });
 }

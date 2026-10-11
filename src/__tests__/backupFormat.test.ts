@@ -85,10 +85,44 @@ describe('backup file format', () => {
       budgetTransactions: 1,
       categories: 1,
       departments: 1,
+      employees: 0,
     });
   });
 
-  it('keeps payee lists, and still reads backups made before them', () => {
+  it('keeps employees, and still reads backups made before them', () => {
+    const withEmployees = {
+      ...sampleData(),
+      employees: [
+        {
+          id: '33333333-3333-4333-8333-333333333333',
+          name: 'Rahim Uddin',
+          iqamaNo: '2412345678',
+          role: 'staff',
+          designation: 'Driver',
+          projectName: 'Mall',
+          phoneNo: '',
+          insuranceNo: '',
+          iqamaExpiry: '2027-01-31',
+          campName: 'Camp A',
+          createdAt,
+          updatedAt: createdAt,
+        },
+      ],
+    };
+    const parsed = parseBackup(
+      serializeBackup(buildBackupDocument(withEmployees, meta)),
+    );
+    expect(parsed.data.employees).toEqual(withEmployees.employees);
+    expect(parsed.counts.employees).toBe(1);
+
+    const old = parseBackup(
+      serializeBackup(buildBackupDocument(sampleData(), meta)),
+    );
+    expect(old.data.employees).toBeUndefined();
+    expect(old.counts.employees).toBe(0);
+  });
+
+  it('still reads backups with the old payee lists', () => {
     const withLists = {
       ...sampleData(),
       payees: [{ name: 'Pacific Building Supply', sortOrder: 1, createdAt }],

@@ -1,15 +1,22 @@
-import type { BudgetTransaction, Expense } from '../../shared/types';
+import type { BudgetTransaction, Employee, Expense } from '../../shared/types';
 
 export type Section =
   | 'Overview'
   | 'Transactions'
   | 'Budgets'
+  | 'Employees'
   | 'Reports'
   | 'Settings'
   | 'Backup';
 
+export {
+  EMPLOYEE_ROLES,
+  EMPLOYEE_ROLE_LABELS,
+} from '../../shared/employeeRoles';
+export type { EmployeeRole } from '../../shared/employeeRoles';
 export type {
   BudgetTransaction,
+  Employee,
   Expense,
   ExpenseAttachment,
 } from '../../shared/types';
@@ -47,6 +54,50 @@ export function toDateKey(date: Date) {
 
 export function todayKey() {
   return toDateKey(new Date());
+}
+
+/** An Iqama expiring within this many days (or already expired) is flagged. */
+export const IQAMA_WARNING_DAYS = 30;
+
+/** Whole days from today to a 'YYYY-MM-DD' date; negative once it has passed. */
+export function daysUntil(date: string, today = todayKey()) {
+  const toUtc = (key: string) => {
+    const [year, month, day] = key.split('-').map(Number);
+    return Date.UTC(year, month - 1, day);
+  };
+  return Math.round((toUtc(date) - toUtc(today)) / 86_400_000);
+}
+
+export type IqamaStatus = 'expired' | 'expiring' | 'valid' | 'missing';
+
+export const IQAMA_STATUS_LABELS: Record<IqamaStatus, string> = {
+  expired: 'Expired',
+  expiring: `Expiring within ${IQAMA_WARNING_DAYS} days`,
+  valid: 'Valid',
+  missing: 'Not recorded',
+};
+
+export function iqamaStatus(
+  employee: Employee,
+  today = todayKey(),
+): IqamaStatus {
+  if (!employee.iqamaExpiry) return 'missing';
+  const days = daysUntil(employee.iqamaExpiry, today);
+  if (days < 0) return 'expired';
+  return days < IQAMA_WARNING_DAYS ? 'expiring' : 'valid';
+}
+
+/** Expired, or expiring within the warning period: shown in red. */
+export function isIqamaExpiring(employee: Employee, today = todayKey()) {
+  const status = iqamaStatus(employee, today);
+  return status === 'expired' || status === 'expiring';
+}
+
+/** Distinct employee names, sorted, for "Paid to" and payee pickers. */
+export function employeeNames(employees: Employee[]) {
+  return [...new Set(employees.map((employee) => employee.name))].sort((a, b) =>
+    a.localeCompare(b),
+  );
 }
 
 /**

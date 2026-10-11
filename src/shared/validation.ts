@@ -1,8 +1,10 @@
+import { EMPLOYEE_ROLES, isEmployeeRole } from './employeeRoles';
 import { AppError } from './errors';
 import {
   AttachmentUpload,
   BudgetTransactionInput,
   DatabaseConnectionSettings,
+  EmployeeInput,
   ExpenseInput,
   LegacyImportPayload,
 } from './types';
@@ -75,11 +77,6 @@ export function listName(value: unknown, label: string): string {
   return text(value, label, { max: 40, required: true });
 }
 
-/** Payee names may be longer than category/department names. */
-export function payeeName(value: unknown, label: string): string {
-  return text(value, label, { max: 100, required: true });
-}
-
 /** A past calendar month, 'YYYY-MM'. */
 export function pastMonth(value: unknown, currentMonth: string): string {
   if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
@@ -118,6 +115,31 @@ export function validateExpenseInput(value: unknown): ExpenseInput {
       { allowZero: false },
     ),
     vat: money(input.vat, 'VAT', { allowZero: true }),
+  };
+}
+
+export function validateEmployeeInput(value: unknown): EmployeeInput {
+  const input = asRecord(value, 'Employee');
+  if (!isEmployeeRole(input.role)) {
+    fail(`Role must be one of: ${EMPLOYEE_ROLES.join(', ')}.`);
+  }
+  return {
+    role: input.role,
+    name: text(input.name, 'Name', { max: 100, required: true }),
+    nickname: text(input.nickname, 'Nickname', { max: 60 }),
+    iqamaNo: text(input.iqamaNo, 'Iqama no.', { max: 30, required: true }),
+    designation: text(input.designation, 'Designation', { max: 60 }),
+    projectName: text(input.projectName, 'Project name', { max: 120 }),
+    phoneNo: text(input.phoneNo, 'Phone no.', { max: 30 }),
+    insuranceNo: text(input.insuranceNo, 'Insurance no.', { max: 60 }),
+    salary:
+      input.salary === null || input.salary === undefined
+        ? null
+        : money(input.salary, 'Salary', { allowZero: true }),
+    iqamaExpiry: input.iqamaExpiry
+      ? isoDate(input.iqamaExpiry, 'Iqama expiry date')
+      : '',
+    campName: text(input.campName, 'Camp name', { max: 120 }),
   };
 }
 
