@@ -80,27 +80,105 @@ Built with Electron, React and TypeScript.
 
 ## Requirements
 
-- Node.js 18 or newer, with npm 7 or newer
-- PostgreSQL 13 or newer, with an empty database and a user for the app
+- **Node.js 18 or newer** (with npm), to run and build the app from source
+- **PostgreSQL 13 or newer**, where the data is kept
+- Git
 
-See [docs/database-and-backups.md](docs/database-and-backups.md) to create the
-database, connect the app, and understand backups and restores.
+The app runs on macOS, Windows and Linux.
 
-## Getting started
+## Install
+
+### 1. Install Node.js and PostgreSQL
+
+| | Node.js | PostgreSQL |
+| --- | --- | --- |
+| **macOS** | Installer from [nodejs.org](https://nodejs.org), or `brew install node` | [Postgres.app](https://postgresapp.com) (easiest), or `brew install postgresql@16` |
+| **Windows** | Installer from [nodejs.org](https://nodejs.org) | Installer from [postgresql.org/download/windows](https://www.postgresql.org/download/windows/) |
+| **Linux** | Your package manager, or [nodejs.org](https://nodejs.org) | `sudo apt install postgresql` (Debian/Ubuntu) or your distribution's package |
+
+Check the versions:
+
+```bash
+node -v      # v18 or newer
+psql --version
+```
+
+### 2. Create the database
+
+Open `psql` as the PostgreSQL admin user. With Postgres.app or Homebrew that
+is `psql postgres`; on Windows and Linux it is usually `psql -U postgres`
+(Linux: `sudo -u postgres psql`). Then run:
+
+```sql
+CREATE ROLE moon_finance LOGIN PASSWORD 'choose-a-strong-password';
+CREATE DATABASE moon_finance OWNER moon_finance;
+```
+
+The app creates and upgrades its own tables. Several computers can share
+the same database. See
+[docs/database-and-backups.md](docs/database-and-backups.md) for details.
+
+### 3. Get the code and install dependencies
 
 ```bash
 git clone https://github.com/imran-shuvo/Moon-HRM-DESKTOP.git
 cd Moon-HRM-DESKTOP
 npm install
+```
+
+## Run
+
+```bash
 npm start
 ```
 
-On first start the app asks for the database connection. It creates its own
-tables. To skip that screen during development, set `DATABASE_URL`:
+On first start the app asks for the database connection: host
+(`localhost`), port (`5432`), database (`moon_finance`), user
+(`moon_finance`) and password. **Test connection** checks them; **Save &
+connect** saves them (the password is encrypted with the system keychain)
+and creates the tables. To change it later: **Backup → Database → Change
+connection**.
+
+During development you can skip that screen with `DATABASE_URL`:
 
 ```bash
 DATABASE_URL=postgres://moon_finance:password@localhost:5432/moon_finance npm start
 ```
+
+## Try the demo company
+
+[`demo/moon-finance-demo.mfbackup`](demo/moon-finance-demo.mfbackup) is a
+ready-made company for trying the app: 12 employees in every role across
+the Mall, Tower and Office projects, September 2026 attendance (overtime,
+absences, leave, vacation, a holiday and a terminated employee), salary
+advances, payslips, signature sheets and other documents, and expenses and
+budgets from August to October 2026 with receipts.
+
+Load it into a **separate, empty database** so it never mixes with real
+data:
+
+```sql
+CREATE DATABASE moon_finance_demo OWNER moon_finance;
+```
+
+**From the command line** (creates the tables and loads the demo; it
+refuses a database that already has data):
+
+```bash
+DATABASE_URL=postgres://moon_finance:password@localhost:5432/moon_finance_demo npm run demo:load
+```
+
+Then start the app and connect to the database `moon_finance_demo`.
+
+**Or in the app:** connect to `moon_finance_demo`, open **Backup → Restore
+from file…**, choose `demo/moon-finance-demo.mfbackup` and confirm.
+A restore replaces everything in the connected database, so only do this in
+the demo database.
+
+While using the demo, turn off automatic backups (**Backup → Backup &
+restore**), or point them at another folder, so demo backups do not push
+real ones out of the backup folder. Switch back to `moon_finance` with
+**Backup → Database → Change connection**.
 
 ## Scripts
 
@@ -108,7 +186,8 @@ DATABASE_URL=postgres://moon_finance:password@localhost:5432/moon_finance npm st
 | --- | --- |
 | `npm start` | Runs the app in development mode with hot reload. |
 | `npm test` | Runs the Jest test suite. |
-| `npm run lint` | Lints the project with ESLint. |
+| `npm run lint` | Lints the project with ESLint (`npm run lint:fix` fixes formatting). |
+| `npm run demo:load` | Loads the demo company into the empty database in `DATABASE_URL`. |
 | `npm run package` | Builds installers for the current platform into `release/build`. |
 
 ## Project structure
@@ -138,6 +217,7 @@ running parameterised SQL. Schema changes go in a **new** migration in
 
 ```bash
 npm test
+npm run lint
 ```
 
 UI tests render the app against `src/testFixtures/memoryApi.ts`, an in-memory
@@ -146,13 +226,34 @@ PostgreSQL.
 
 ## Packaging
 
+Build the installers on the operating system you are building for:
+
 ```bash
 npm run package
 ```
 
-Installers are written to `release/build`: a DMG on macOS, an NSIS installer
-on Windows, and an AppImage on Linux. The installed app is named
-**Inventory**, as set by `build.productName` in `package.json`.
+| Built on | Output in `release/build` |
+| --- | --- |
+| macOS | `.dmg` installers for Apple silicon (arm64) and Intel (x64) |
+| Windows | NSIS `Setup .exe` installer |
+| Linux | `.AppImage` |
+
+- The installed app is named **Inventory** (`build.productName` in
+  `package.json`). Its version comes from `version` in
+  `release/app/package.json`; raise it before building a new release.
+- The installed app connects to PostgreSQL the same way as in development:
+  on first start it asks for the server, database, user and password.
+  PostgreSQL is not bundled, so every computer needs network access to the
+  database server.
+- Builds are not code-signed unless you provide signing certificates
+  (`CSC_LINK` and `CSC_KEY_PASSWORD` for electron-builder; Apple ID details
+  for macOS notarization). Unsigned apps show a warning the first time:
+  - **macOS**: right-click the app → **Open**, or **System Settings →
+    Privacy & Security → Open Anyway**.
+  - **Windows**: on the SmartScreen prompt, **More info → Run anyway**.
+- `.github/workflows/publish.yml` can build and publish installers for all
+  three platforms to GitHub Releases. It is switched off; to use it, remove
+  the `if:` line in that file and add the signing secrets to the repository.
 
 ## Acknowledgements
 
