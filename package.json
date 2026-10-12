@@ -164,8 +164,10 @@
     "webpack-merge": "^5.9.0"
   },
   "build": {
-    "productName": "Inventory",
-    "appId": "org.erb.Inventory",
+    "productName": "Moon Finance",
+    "appId": "com.moontrading.moonfinance",
+    "afterPack": ".erb/scripts/adhoc-sign.js",
+    "afterSign": ".erb/scripts/notarize.js",
     "asar": true,
     "asarUnpack": "**\\*.{node,dll}",
     "files": [
@@ -174,7 +176,6 @@
       "package.json"
     ],
     "mac": {
-      "sign": ".erb/scripts/notarize.js",
       "notarize": false,
       "target": {
         "target": "default",

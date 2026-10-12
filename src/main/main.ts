@@ -8,6 +8,7 @@
  * When running `npm run build` or `npm run build:main`, this file is compiled to
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
+import fs from 'fs';
 import path from 'path';
 import { app, BrowserWindow, safeStorage, shell } from 'electron';
 import log from 'electron-log';
@@ -22,14 +23,40 @@ log.transports.file.level = 'info';
 
 let mainWindow: BrowserWindow | null = null;
 
-const settingsStore = new SettingsStore(
-  path.join(app.getPath('userData'), 'settings.json'),
-  {
-    isAvailable: () => safeStorage.isEncryptionAvailable(),
-    encrypt: (value) => safeStorage.encryptString(value),
-    decrypt: (value) => safeStorage.decryptString(value),
-  },
-);
+const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+
+/**
+ * Installed builds were called "Inventory" before the app was renamed, and
+ * kept their settings in that app-data folder. Copy them once, so the
+ * database connection and backup settings carry over; the old file stays.
+ * (A password locked to the old app's keychain entry is asked for again.)
+ */
+function adoptSettingsFromBeforeRename() {
+  const legacy = path.join(
+    app.getPath('appData'),
+    'Inventory',
+    'settings.json',
+  );
+  if (legacy === settingsPath || fs.existsSync(settingsPath)) return;
+  if (!fs.existsSync(legacy)) return;
+  try {
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.copyFileSync(legacy, settingsPath);
+    log.info('Copied settings from the app\'s former "Inventory" folder.');
+  } catch (error) {
+    log.error(
+      'Could not copy settings from the former "Inventory" folder.',
+      error,
+    );
+  }
+}
+adoptSettingsFromBeforeRename();
+
+const settingsStore = new SettingsStore(settingsPath, {
+  isAvailable: () => safeStorage.isEncryptionAvailable(),
+  encrypt: (value) => safeStorage.encryptString(value),
+  decrypt: (value) => safeStorage.decryptString(value),
+});
 
 const connection = new ConnectionManager(settingsStore);
 

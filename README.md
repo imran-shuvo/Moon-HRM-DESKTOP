@@ -234,13 +234,17 @@ npm run package
 
 | Built on | Output in `release/build` |
 | --- | --- |
-| macOS | `.dmg` installers for Apple silicon (arm64) and Intel (x64) |
+| macOS | `.dmg` installers and `.zip` archives for Apple silicon (arm64) and Intel (x64) |
 | Windows | NSIS `Setup .exe` installer |
 | Linux | `.AppImage` |
 
-- The installed app is named **Inventory** (`build.productName` in
+- The installed app is named **Moon Finance** (`build.productName` in
   `package.json`). Its version comes from `version` in
   `release/app/package.json`; raise it before building a new release.
+- Builds before version 4.7.0 were called **Inventory**. Moon Finance
+  installs as a separate app: uninstall Inventory afterwards. On first start
+  it copies Inventory's connection and backup settings; on macOS you may be
+  asked for the database password once.
 - The installed app connects to PostgreSQL the same way as in development:
   on first start it asks for the server, database, user and password.
   PostgreSQL is not bundled, so every computer needs network access to the
@@ -249,7 +253,9 @@ npm run package
   (`CSC_LINK` and `CSC_KEY_PASSWORD` for electron-builder; Apple ID details
   for macOS notarization). Unsigned apps show a warning the first time:
   - **macOS**: right-click the app → **Open**, or **System Settings →
-    Privacy & Security → Open Anyway**.
+    Privacy & Security → Open Anyway**. Without a certificate the app is
+    signed ad hoc (`.erb/scripts/adhoc-sign.js`), so Apple silicon Macs
+    don't report it as damaged.
   - **Windows**: on the SmartScreen prompt, **More info → Run anyway**.
 - `.github/workflows/publish.yml` can build and publish installers for all
   three platforms to GitHub Releases. It is switched off; to use it, remove
