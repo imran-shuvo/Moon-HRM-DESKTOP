@@ -6,6 +6,7 @@ import {
   outstandingAdvance,
   payBasis,
   roundMoney,
+  roundRate,
 } from '../../../shared/payroll';
 import { PayslipInput } from '../../../shared/types';
 import { errorMessage, useFinanceApi } from '../../data/FinanceApiContext';
@@ -41,13 +42,15 @@ const EARNING_FIELDS: { key: NumberKey; label: string }[] = [
   { key: 'basicSalary', label: 'Basic salary / month' },
   { key: 'hourlyRate', label: 'Rate per hour' },
   { key: 'basicPay', label: 'Basic pay' },
-  { key: 'overtimeHours', label: 'Overtime hours' },
-  { key: 'overtimeRate', label: 'Overtime rate / hour' },
+  { key: 'overtimeHours', label: 'Overtime hours (working days)' },
+  { key: 'overtimeRate', label: 'Overtime rate / hour (working days)' },
+  { key: 'weekendOvertimeHours', label: 'Overtime hours (Fridays)' },
+  { key: 'weekendOvertimeRate', label: 'Overtime rate / hour (Fridays)' },
   { key: 'allowance', label: 'Allowance / leave pay' },
 ];
 const DEDUCTION_FIELDS: { key: NumberKey; label: string }[] = [
-  { key: 'absenceDeduction', label: 'Absence / leave deduction' },
-  { key: 'absenceFine', label: 'Absence fine' },
+  { key: 'absenceDeduction', label: 'Unpaid vacation' },
+  { key: 'absenceFine', label: 'Unpaid leave deduction' },
   { key: 'advanceDeduction', label: 'Advance deduction' },
   { key: 'otherDeduction', label: 'Other deduction' },
 ];
@@ -59,6 +62,20 @@ const INTEGER_KEYS: NumberKey[] = [
   'vacationDays',
   'holidayDays',
 ];
+const RATE_KEYS: NumberKey[] = ['overtimeRate', 'weekendOvertimeRate'];
+
+function stepFor(key: NumberKey) {
+  if (INTEGER_KEYS.includes(key)) return 1;
+  return RATE_KEYS.includes(key) ? 0.0001 : 0.01;
+}
+
+/** A per-hour rate, e.g. 10.8333. */
+const formatRate = (value: number) =>
+  new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(value);
+
 const NUMBER_KEYS = [...DAY_FIELDS, ...EARNING_FIELDS, ...DEDUCTION_FIELDS].map(
   (field) => field.key,
 );
@@ -96,7 +113,7 @@ function parseForm(
     ) {
       return `${labels.get(key)} must be a whole number of days (0–31).`;
     }
-    input[key] = roundMoney(value);
+    input[key] = RATE_KEYS.includes(key) ? roundRate(value) : roundMoney(value);
   }
   return input;
 }
@@ -224,7 +241,7 @@ export default function PayslipDialog({
           const { value } = event.currentTarget;
           setForm((current) => ({ ...current, [key]: value }));
         }}
-        step={INTEGER_KEYS.includes(key) ? 1 : 0.01}
+        step={stepFor(key)}
         type="number"
         value={form[key]}
       />
@@ -233,7 +250,10 @@ export default function PayslipDialog({
 
   // What the payslip shows: the saved payslip, or the edits in progress.
   const shown: PayslipInput = typeof parsed === 'string' ? payslip : parsed;
-  const overtimePay = roundMoney(shown.overtimeHours * shown.overtimeRate);
+  const regularOvertime = roundMoney(shown.overtimeHours * shown.overtimeRate);
+  const fridayOvertime = roundMoney(
+    shown.weekendOvertimeHours * shown.weekendOvertimeRate,
+  );
   const earnings: [string, number][] = [
     [
       basis === 'hourly'
@@ -242,14 +262,18 @@ export default function PayslipDialog({
       shown.basicPay,
     ],
     [
-      `Overtime ${formatHours(shown.overtimeHours)} h × ${formatAmount(shown.overtimeRate)}`,
-      overtimePay,
+      `Overtime ${formatHours(shown.overtimeHours)} h × ${formatRate(shown.overtimeRate)}`,
+      regularOvertime,
+    ],
+    [
+      `Friday overtime ${formatHours(shown.weekendOvertimeHours)} h × ${formatRate(shown.weekendOvertimeRate)}`,
+      fridayOvertime,
     ],
     ['Allowance / leave pay', shown.allowance],
   ];
   const deductions: [string, number][] = [
-    ['Absence / leave', shown.absenceDeduction],
-    ['Absence fine', shown.absenceFine],
+    ['Unpaid vacation', shown.absenceDeduction],
+    ['Unpaid leave', shown.absenceFine],
     ['Advance', shown.advanceDeduction],
     ['Other', shown.otherDeduction],
   ];

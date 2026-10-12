@@ -7,6 +7,7 @@ import {
   AttendanceStatus,
   BudgetTransactionInput,
   DatabaseConnectionSettings,
+  DocumentInput,
   EmployeeInput,
   ExpenseInput,
   LegacyImportPayload,
@@ -118,6 +119,17 @@ function nonEmptyList(value: unknown, label: string, max: number): unknown[] {
   return value;
 }
 
+/** A rate per hour, kept to 4 decimals (e.g. 10.8333). */
+export function rate(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    fail(`${label} must be a number.`);
+  }
+  const rounded = Math.round(value * 10000) / 10000;
+  if (rounded < 0) fail(`${label} must be zero or more.`);
+  if (rounded > MAX_AMOUNT) fail(`${label} is too large.`);
+  return rounded;
+}
+
 export function listName(value: unknown, label: string): string {
   return text(value, label, { max: 40, required: true });
 }
@@ -197,6 +209,22 @@ export function validateEmployeeInput(value: unknown): EmployeeInput {
       input.hourlyRate === null || input.hourlyRate === undefined
         ? null
         : money(input.hourlyRate, 'Rate per hour', { allowZero: true }),
+    terminationDate: input.terminationDate
+      ? isoDate(input.terminationDate, 'Last working day')
+      : '',
+  };
+}
+
+export function validateDocumentInput(value: unknown): DocumentInput {
+  const input = asRecord(value, 'Document');
+  return {
+    title: text(input.title, 'Title', { max: 200 }),
+    category: text(input.category, 'Category', { max: 60, required: true }),
+    projectName: text(input.projectName, 'Project', { max: 120 }),
+    campName: text(input.campName, 'Camp', { max: 120 }),
+    documentDate: isoDate(input.documentDate, 'Document date'),
+    employeeId: input.employeeId ? recordId(input.employeeId) : '',
+    note: text(input.note, 'Note', { max: 500 }),
   };
 }
 
@@ -277,10 +305,21 @@ export function validatePayslipInput(value: unknown): PayslipInput {
     overtimeHours: quantity(input.overtimeHours, 'Overtime hours', {
       max: 744,
     }),
-    overtimeRate: amount('overtimeRate', 'Overtime rate'),
+    overtimeRate: rate(input.overtimeRate, 'Overtime rate'),
+    // Not sent by payslips saved before Friday overtime was separate.
+    weekendOvertimeHours:
+      input.weekendOvertimeHours === undefined
+        ? 0
+        : quantity(input.weekendOvertimeHours, 'Friday overtime hours', {
+            max: 744,
+          }),
+    weekendOvertimeRate:
+      input.weekendOvertimeRate === undefined
+        ? 0
+        : rate(input.weekendOvertimeRate, 'Friday overtime rate'),
     allowance: amount('allowance', 'Allowance'),
-    absenceDeduction: amount('absenceDeduction', 'Absence / leave deduction'),
-    absenceFine: amount('absenceFine', 'Absence fine'),
+    absenceDeduction: amount('absenceDeduction', 'Unpaid vacation'),
+    absenceFine: amount('absenceFine', 'Absent / leave deduction'),
     advanceDeduction: amount('advanceDeduction', 'Advance deduction'),
     otherDeduction: amount('otherDeduction', 'Other deduction'),
     note: text(input.note, 'Note', { max: 300 }),
@@ -315,22 +354,24 @@ function flag(value: unknown, label: string): boolean {
 export function validatePayrollSettings(value: unknown): PayrollSettings {
   const input = asRecord(value, 'Payroll settings');
   return {
-    overtimeBaseRate: money(input.overtimeBaseRate, 'Overtime base rate', {
-      allowZero: true,
-    }),
     overtimeMultiplier: quantity(
       input.overtimeMultiplier,
-      'Overtime multiplier',
-      {
-        max: 10,
-      },
+      'Overtime multiplier (working days)',
+      { max: 10 },
     ),
-    absenceFine: money(input.absenceFine, 'Absence fine', { allowZero: true }),
-    absenceFineFreeDays: quantity(
-      input.absenceFineFreeDays,
-      'Absent days without a fine',
-      { max: 31, integer: true },
+    weekendOvertimeMultiplier: quantity(
+      input.weekendOvertimeMultiplier,
+      'Overtime multiplier (Fridays)',
+      { max: 10 },
     ),
+    salaryDays: quantity(input.salaryDays, 'Days in a salary month', {
+      min: 1,
+      max: 31,
+    }),
+    paidDaysOff: quantity(input.paidDaysOff, 'Paid days off a month', {
+      max: 31,
+      integer: true,
+    }),
     leavePaid: flag(input.leavePaid, 'Leave paid'),
     vacationPaid: flag(input.vacationPaid, 'Vacation paid'),
   };

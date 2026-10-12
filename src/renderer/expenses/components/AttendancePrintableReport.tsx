@@ -1,9 +1,11 @@
+import { ReactNode } from 'react';
 import {
   ATTENDANCE_STATUSES,
   ATTENDANCE_STATUS_CODES,
   ATTENDANCE_STATUS_LABELS,
   AttendanceSummary,
   datesInMonth,
+  isEmployedOn,
   isFriday,
   overtimeHoursFor,
   payBasis,
@@ -49,8 +51,13 @@ export function attendanceCode(
   return overtime > 0 ? `P+${formatHours(overtime)}` : 'P';
 }
 
-/** Class for a day cell: its status colour, or Friday / not recorded. */
-export function dayCellClass(entry: AttendanceEntry | undefined, date: string) {
+/** Class for a day cell: its status colour, Friday, after termination, or not recorded. */
+export function dayCellClass(
+  entry: AttendanceEntry | undefined,
+  date: string,
+  employee: Pick<Employee, 'terminationDate'>,
+) {
+  if (!isEmployedOn(employee, date)) return 'status-ended';
   if (entry) return `status-${entry.status}`;
   return isFriday(date) ? 'status-friday' : 'status-empty';
 }
@@ -196,7 +203,10 @@ export function AttendanceSheetReport({
                   {dates.map((date) => {
                     const entry = byKey.get(`${employee.id}|${date}`);
                     return (
-                      <td className={dayCellClass(entry, date)} key={date}>
+                      <td
+                        className={dayCellClass(entry, date, employee)}
+                        key={date}
+                      >
                         {attendanceCode(entry, employee)}
                       </td>
                     );
@@ -229,10 +239,13 @@ export function EmployeeAttendanceReport({
   month,
   employee,
   entries,
+  payCalculation,
 }: {
   month: string;
   employee: Employee;
   entries: AttendanceEntry[];
+  /** The month's pay worked out line by line, printed last. */
+  payCalculation: ReactNode;
 }) {
   const byKey = entriesByEmployeeDate(entries);
   const summary = summarizeAttendance(employee, entries, month);
@@ -302,7 +315,7 @@ export function EmployeeAttendanceReport({
           {dates.map((date) => {
             const entry = byKey.get(`${employee.id}|${date}`);
             return (
-              <span className={dayCellClass(entry, date)} key={date}>
+              <span className={dayCellClass(entry, date, employee)} key={date}>
                 <em>{Number(date.slice(8))}</em>
                 {entry
                   ? attendanceCode(entry, employee)
@@ -339,7 +352,7 @@ export function EmployeeAttendanceReport({
                   <td>{weekday(date)}</td>
                   <td>
                     <span
-                      className={`print-badge ${dayCellClass(entry, date)}`}
+                      className={`print-badge ${dayCellClass(entry, date, employee)}`}
                     >
                       {status}
                     </span>
@@ -362,6 +375,13 @@ export function EmployeeAttendanceReport({
             })}
           </tbody>
         </table>
+      </section>
+      <section className="moon-report-section pay-calculation-print">
+        <h2>How the month&apos;s pay is worked out</h2>
+        <p className="moon-report-filters">
+          Using the current payroll settings, the same way a new payslip is.
+        </p>
+        {payCalculation}
       </section>
       <div className="moon-signatures">
         <span>Employee signature</span>

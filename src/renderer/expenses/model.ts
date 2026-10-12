@@ -7,6 +7,7 @@ export type Section =
   | 'Employees'
   | 'Attendance'
   | 'Payroll'
+  | 'Documents'
   | 'Reports'
   | 'Settings'
   | 'Backup';
@@ -18,6 +19,7 @@ export {
 export type { EmployeeRole } from '../../shared/employeeRoles';
 export type {
   AttendanceEntry,
+  DocumentRecord,
   AttendanceStatus,
   BudgetTransaction,
   Employee,
@@ -215,6 +217,13 @@ export function getMonthlyExpenseSummaries(expenses: Expense[]) {
 /** e.g. plural(1, 'expense') → '1 expense', plural(2, 'expense') → '2 expenses' */
 export function plural(count: number, singular: string) {
   return `${count} ${count === 1 ? singular : `${singular}s`}`;
+}
+
+/** e.g. 900 → '900 B', 15360 → '15 KB', 2621440 → '2.5 MB'. */
+export function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 /** One amount among many, without the currency; totals use formatCurrency. */

@@ -1,7 +1,11 @@
 import { DEFAULT_PAYROLL_SETTINGS } from '../../shared/payroll';
-import { BackupCounts } from '../../shared/types';
+import { BackupCounts, PayrollSettings } from '../../shared/types';
 import { Database } from '../db/database';
-import { BackupData, countRecords } from './backupFormat';
+import {
+  BackupData,
+  BackupPayrollSettings,
+  countRecords,
+} from './backupFormat';
 
 /** Reads every table in one consistent snapshot. */
 export function readBackupData(db: Database): Promise<BackupData> {
@@ -35,7 +39,8 @@ export function readBackupData(db: Database): Promise<BackupData> {
       const employees = await client.query(
         `SELECT id, name, iqama_no, designation, project_name, phone_no,
                 insurance_no, iqama_expiry, camp_name, created_at, updated_at,
-                nickname, salary, role, work_hours_per_day, hourly_rate
+                nickname, salary, role, work_hours_per_day, hourly_rate,
+                termination_date
          FROM employees ORDER BY created_at, id`,
       );
       const attendance = await client.query(
@@ -55,12 +60,19 @@ export function readBackupData(db: Database): Promise<BackupData> {
                 hours_worked, basic_salary, hourly_rate, basic_pay,
                 overtime_hours, overtime_rate, allowance, absence_deduction,
                 absence_fine, advance_deduction, other_deduction, status,
-                paid_date, note, created_at, updated_at, vacation_days
+                paid_date, note, created_at, updated_at, vacation_days,
+                weekend_overtime_hours, weekend_overtime_rate
          FROM payslips ORDER BY month, created_at, id`,
       );
+      const documents = await client.query(
+        `SELECT id, title, category, project_name, camp_name, document_date,
+                employee_id, note, file_name, mime_type, size_bytes, content,
+                created_at, updated_at
+         FROM documents ORDER BY document_date, created_at, id`,
+      );
       const settings = await client.query(
-        `SELECT overtime_base_rate, overtime_multiplier, absence_fine,
-                absence_fine_free_days, leave_paid, vacation_paid
+        `SELECT overtime_multiplier, weekend_overtime_multiplier,
+                salary_days, paid_days_off, leave_paid, vacation_paid
          FROM payroll_settings WHERE id = 1`,
       );
       const listItem = (row: ListRow) => ({
@@ -124,6 +136,7 @@ export function readBackupData(db: Database): Promise<BackupData> {
           role: row.role,
           workHoursPerDay: row.work_hours_per_day,
           hourlyRate: row.hourly_rate,
+          terminationDate: row.termination_date,
         })),
         // Same key order as parseBackup builds, so the checksum matches.
         attendance: attendance.rows.map((row) => ({
@@ -176,21 +189,65 @@ export function readBackupData(db: Database): Promise<BackupData> {
           createdAt: iso(row.created_at),
           updatedAt: iso(row.updated_at),
           vacationDays: row.vacation_days,
+          weekendOvertimeHours: row.weekend_overtime_hours,
+          weekendOvertimeRate: row.weekend_overtime_rate,
         })),
         payrollSettings: settings.rows[0]
           ? {
-              overtimeBaseRate: settings.rows[0].overtime_base_rate,
               overtimeMultiplier: settings.rows[0].overtime_multiplier,
-              absenceFine: settings.rows[0].absence_fine,
-              absenceFineFreeDays: settings.rows[0].absence_fine_free_days,
+              weekendOvertimeMultiplier:
+                settings.rows[0].weekend_overtime_multiplier,
+              salaryDays: settings.rows[0].salary_days,
+              paidDaysOff: settings.rows[0].paid_days_off,
               leavePaid: settings.rows[0].leave_paid,
               vacationPaid: settings.rows[0].vacation_paid,
             }
           : undefined,
+        documents: documents.rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          category: row.category,
+          projectName: row.project_name,
+          campName: row.camp_name,
+          documentDate: row.document_date,
+          employeeId: row.employee_id,
+          note: row.note,
+          fileName: row.file_name,
+          mimeType: row.mime_type,
+          sizeBytes: row.size_bytes,
+          contentBase64: (row.content as Buffer).toString('base64'),
+          createdAt: iso(row.created_at),
+          updatedAt: iso(row.updated_at),
+        })),
       };
     },
     { isolation: 'REPEATABLE READ' },
   );
+}
+
+/**
+ * Settings from a backup. Older backups used a flat overtime rate and fine,
+ * which the company policy replaced: they restore with the policy rates,
+ * keeping their paid days off and leave / vacation choices.
+ */
+export function restoredPayrollSettings(
+  saved: BackupPayrollSettings | undefined,
+): PayrollSettings {
+  const defaults = DEFAULT_PAYROLL_SETTINGS;
+  if (!saved) return defaults;
+  const policy = saved.salaryDays !== undefined;
+  return {
+    overtimeMultiplier: policy
+      ? saved.overtimeMultiplier
+      : defaults.overtimeMultiplier,
+    weekendOvertimeMultiplier:
+      saved.weekendOvertimeMultiplier ?? defaults.weekendOvertimeMultiplier,
+    salaryDays: saved.salaryDays ?? defaults.salaryDays,
+    paidDaysOff:
+      saved.paidDaysOff ?? saved.absenceFineFreeDays ?? defaults.paidDaysOff,
+    leavePaid: saved.leavePaid ?? defaults.leavePaid,
+    vacationPaid: saved.vacationPaid ?? defaults.vacationPaid,
+  };
 }
 
 /**
@@ -205,7 +262,7 @@ export function restoreBackupData(
     await client.query(
       `TRUNCATE expense_attachments, expenses, budget_receipts, categories,
                 departments, attendance, salary_advances, payslips,
-                employees`,
+                documents, employees`,
     );
     const json = (rows: unknown[]) => JSON.stringify(rows);
     const lists = [
@@ -275,18 +332,21 @@ export function restoreBackupData(
       `INSERT INTO employees
          (id, name, iqama_no, designation, project_name, phone_no,
           insurance_no, iqama_expiry, camp_name, created_at, updated_at,
-          nickname, salary, role, work_hours_per_day, hourly_rate)
+          nickname, salary, role, work_hours_per_day, hourly_rate,
+          termination_date)
        SELECT id, name, "iqamaNo", designation, "projectName", "phoneNo",
               "insuranceNo", "iqamaExpiry", "campName", "createdAt", "updatedAt",
               coalesce(nickname, ''), salary, coalesce(role, 'company_worker'),
-              coalesce("workHoursPerDay", 8), "hourlyRate"
+              coalesce("workHoursPerDay", 10), "hourlyRate",
+              "terminationDate"
        FROM jsonb_to_recordset($1::jsonb) AS x(
          id uuid, name text, "iqamaNo" text, designation text,
          "projectName" text, "phoneNo" text, "insuranceNo" text,
          "iqamaExpiry" date, "campName" text,
          "createdAt" timestamptz, "updatedAt" timestamptz,
          nickname text, salary numeric, role text,
-         "workHoursPerDay" numeric, "hourlyRate" numeric)`,
+         "workHoursPerDay" numeric, "hourlyRate" numeric,
+         "terminationDate" date)`,
       [json(data.employees ?? [])],
     );
     // Older backups have no attendance, advances, payslips or settings.
@@ -317,7 +377,8 @@ export function restoreBackupData(
           leave_days, holiday_days, hours_worked, basic_salary, hourly_rate,
           basic_pay, overtime_hours, overtime_rate, allowance,
           absence_deduction, absence_fine, advance_deduction, other_deduction,
-          status, paid_date, note, created_at, updated_at, vacation_days)
+          status, paid_date, note, created_at, updated_at, vacation_days,
+          weekend_overtime_hours, weekend_overtime_rate)
        SELECT id, "employeeId", month, "employeeName", "iqamaNo", role,
               designation, "projectName", "campName", "workingDays",
               "presentDays", "absentDays", "leaveDays", "holidayDays",
@@ -325,7 +386,9 @@ export function restoreBackupData(
               "overtimeHours", "overtimeRate", allowance, "absenceDeduction",
               "absenceFine", "advanceDeduction", "otherDeduction", status,
               "paidDate", note, "createdAt", "updatedAt",
-              coalesce("vacationDays", 0)
+              coalesce("vacationDays", 0),
+              coalesce("weekendOvertimeHours", 0),
+              coalesce("weekendOvertimeRate", 0)
        FROM jsonb_to_recordset($1::jsonb) AS x(
          id uuid, "employeeId" uuid, month text, "employeeName" text,
          "iqamaNo" text, role text, designation text, "projectName" text,
@@ -336,35 +399,61 @@ export function restoreBackupData(
          allowance numeric, "absenceDeduction" numeric, "absenceFine" numeric,
          "advanceDeduction" numeric, "otherDeduction" numeric, status text,
          "paidDate" date, note text, "createdAt" timestamptz,
-         "updatedAt" timestamptz, "vacationDays" int)`,
+         "updatedAt" timestamptz, "vacationDays" int,
+         "weekendOvertimeHours" numeric, "weekendOvertimeRate" numeric)`,
       [json(data.payslips ?? [])],
     );
-    const settings = {
-      ...DEFAULT_PAYROLL_SETTINGS,
-      ...data.payrollSettings,
-    };
+    const settings = restoredPayrollSettings(data.payrollSettings);
     await client.query(
       `INSERT INTO payroll_settings
-         (id, overtime_base_rate, overtime_multiplier, absence_fine,
-          absence_fine_free_days, leave_paid, vacation_paid)
+         (id, overtime_multiplier, weekend_overtime_multiplier, salary_days,
+          paid_days_off, leave_paid, vacation_paid)
        VALUES (1, $1, $2, $3, $4, $5, $6)
        ON CONFLICT (id) DO UPDATE SET
-         overtime_base_rate = EXCLUDED.overtime_base_rate,
          overtime_multiplier = EXCLUDED.overtime_multiplier,
-         absence_fine = EXCLUDED.absence_fine,
-         absence_fine_free_days = EXCLUDED.absence_fine_free_days,
+         weekend_overtime_multiplier = EXCLUDED.weekend_overtime_multiplier,
+         salary_days = EXCLUDED.salary_days,
+         paid_days_off = EXCLUDED.paid_days_off,
          leave_paid = EXCLUDED.leave_paid,
          vacation_paid = EXCLUDED.vacation_paid,
          updated_at = now()`,
       [
-        settings.overtimeBaseRate,
         settings.overtimeMultiplier,
-        settings.absenceFine,
-        settings.absenceFineFreeDays,
+        settings.weekendOvertimeMultiplier,
+        settings.salaryDays,
+        settings.paidDaysOff,
         settings.leavePaid,
         settings.vacationPaid,
       ],
     );
+    // Documents one at a time to keep each statement's size bounded.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const document of data.documents ?? []) {
+      // eslint-disable-next-line no-await-in-loop
+      await client.query(
+        `INSERT INTO documents
+           (id, title, category, project_name, camp_name, document_date,
+            employee_id, note, file_name, mime_type, size_bytes, content,
+            created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          document.id,
+          document.title,
+          document.category,
+          document.projectName,
+          document.campName,
+          document.documentDate,
+          document.employeeId,
+          document.note,
+          document.fileName,
+          document.mimeType,
+          document.sizeBytes,
+          Buffer.from(document.contentBase64, 'base64'),
+          document.createdAt,
+          document.updatedAt,
+        ],
+      );
+    }
     return countRecords(data);
   });
 }

@@ -28,6 +28,15 @@ import FilterBar, {
 } from './FilterBar';
 import MultiSelectFilter, { countBy } from './MultiSelectFilter';
 
+type Employment = 'active' | 'terminated';
+const EMPLOYMENTS: Employment[] = ['active', 'terminated'];
+const EMPLOYMENT_LABELS: Record<Employment, string> = {
+  active: 'Active',
+  terminated: 'Terminated',
+};
+const employment = (employee: Employee): Employment =>
+  employee.terminationDate ? 'terminated' : 'active';
+
 type Filters = {
   search: string;
   roles: EmployeeRole[];
@@ -35,6 +44,7 @@ type Filters = {
   projects: string[];
   camps: string[];
   statuses: IqamaStatus[];
+  employment: Employment[];
 };
 
 const NO_FILTERS: Filters = {
@@ -44,6 +54,7 @@ const NO_FILTERS: Filters = {
   projects: [],
   camps: [],
   statuses: [],
+  employment: [],
 };
 
 const STATUSES = Object.keys(IQAMA_STATUS_LABELS) as IqamaStatus[];
@@ -95,6 +106,7 @@ export default function EmployeePanel({
       matchesAny(filters.projects, employee.projectName) &&
       matchesAny(filters.camps, employee.campName) &&
       matchesAny(filters.statuses, iqamaStatus(employee)) &&
+      matchesAny(filters.employment, employment(employee)) &&
       (!needle ||
         [
           employee.name,
@@ -124,6 +136,9 @@ export default function EmployeePanel({
     ),
     ...multiChips('Camp', filters.camps, options.camps.labels, (v) =>
       set({ camps: v }),
+    ),
+    ...multiChips('Employment', filters.employment, EMPLOYMENT_LABELS, (v) =>
+      set({ employment: v }),
     ),
     ...multiChips('Iqama', filters.statuses, IQAMA_STATUS_LABELS, (v) =>
       set({ statuses: v }),
@@ -231,6 +246,16 @@ export default function EmployeePanel({
           selected={filters.statuses}
           onChange={(v) => set({ statuses: v })}
         />
+        <MultiSelectFilter
+          id="employee-filter-employment"
+          label="Employment"
+          allLabel="Active and terminated"
+          options={EMPLOYMENTS}
+          labels={EMPLOYMENT_LABELS}
+          counts={countBy(employees, employment)}
+          selected={filters.employment}
+          onChange={(v) => set({ employment: v })}
+        />
       </FilterBar>
       <div className="table-scroll">
         <table className="expense-table employee-table">
@@ -261,6 +286,14 @@ export default function EmployeePanel({
                     >
                       {employee.name}
                     </button>
+                    {employee.terminationDate && (
+                      <span
+                        className="pill pill-red terminated-pill"
+                        title={`Last working day ${formatReportDate(employee.terminationDate)}`}
+                      >
+                        Terminated
+                      </span>
+                    )}
                   </td>
                   <td>{employee.iqamaNo}</td>
                   <td>{EMPLOYEE_ROLE_LABELS[employee.role]}</td>

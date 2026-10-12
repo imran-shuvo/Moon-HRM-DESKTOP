@@ -3,12 +3,17 @@
  */
 import {
   DEFAULT_PAYROLL_SETTINGS,
+  DEFAULT_WORK_HOURS_PER_DAY,
   calculatePayslip,
   datesInMonth,
   grossPay,
+  hourlySalary,
+  isEmployedInMonth,
   isFriday,
   netPay,
   outstandingAdvance,
+  overtimePay,
+  overtimeRates,
   roundMoney,
   summarizeAttendance,
   workingDaysInMonth,
@@ -43,6 +48,7 @@ function employee(overrides: Partial<Employee> = {}): Employee {
     campName: '',
     workHoursPerDay: 8,
     hourlyRate: null,
+    terminationDate: '',
     ...overrides,
   };
 }
@@ -108,6 +114,7 @@ describe('attendance summary', () => {
     );
     expect(summary).toEqual({
       workingDays: 26,
+      employedWorkingDays: 26,
       presentDays: 2,
       absentDays: 1,
       leaveDays: 1,
@@ -117,6 +124,7 @@ describe('attendance summary', () => {
       fridaysWorked: 1,
       hoursWorked: 24,
       overtimeHours: 8,
+      weekendOvertimeHours: 6,
     });
   });
 
@@ -130,7 +138,8 @@ describe('attendance summary', () => {
 });
 
 describe('payslip calculation', () => {
-  it('pays a company worker by the day with overtime, deductions and fines', () => {
+  it('follows the company policy for a company worker', () => {
+    // Basic 2,600 with 8 basic hours: per-hour salary 2600 ÷ 30 ÷ 8 = 10.8333.
     const attendance = month(8, {
       '2026-10-01': day('2026-10-01', 'present', 12), // 4 h overtime
       '2026-10-03': day('2026-10-03', 'present', 12), // 4 h overtime
@@ -147,23 +156,121 @@ describe('payslip calculation', () => {
     );
     expect(payslip).toEqual(
       expect.objectContaining({
-        workingDays: 26,
         presentDays: 23,
         absentDays: 2,
         leaveDays: 1,
-        basicSalary: 2600,
         basicPay: 2600,
         overtimeHours: 8,
-        overtimeRate: 30, // 20 × 1.5
-        // 3 unpaid days × (2600 / 26)
-        absenceDeduction: 300,
-        // Absent days beyond the first are fined 20 SAR each.
-        absenceFine: 20,
+        overtimeRate: 13.5417, // 10.8333 × 1.25
+        weekendOvertimeHours: 0,
+        weekendOvertimeRate: 16.25, // 10.8333 × 1.5
+        // 3 days off: 1 paid, 2 unpaid × 2600 ÷ 30
+        absenceFine: 173.33,
+        absenceDeduction: 0,
         advanceDeduction: 0,
       }),
     );
-    expect(grossPay(payslip)).toBe(2840);
-    expect(netPay(payslip)).toBe(2520);
+    expect(grossPay(payslip)).toBe(2708.33); // 2600 + 8 × 13.5417
+    expect(netPay(payslip)).toBe(2535); // 2708.33 − 173.33
+  });
+
+  it('pays one day off a month and deducts a day’s salary for each after it', () => {
+    const absent = (count: number) => {
+      const days = ['2026-10-03', '2026-10-04', '2026-10-05', '2026-10-06'];
+      const except = Object.fromEntries(
+        days.slice(0, count).map((date) => [date, day(date, 'absent')]),
+      );
+      return calculatePayslip(
+        employee(),
+        MONTH,
+        month(8, except),
+        DEFAULT_PAYROLL_SETTINGS,
+        0,
+      );
+    };
+    expect(absent(1).absenceFine).toBe(0);
+    expect(absent(2).absenceFine).toBe(86.67); // 2600 ÷ 30
+    expect(absent(4).absenceFine).toBe(260); // 3 × 2600 ÷ 30
+    expect(netPay(absent(4))).toBe(2340);
+  });
+
+  it('works out overtime from the per-hour salary: × 1.25 on working days, × 1.5 on Fridays', () => {
+    expect(DEFAULT_WORK_HOURS_PER_DAY).toBe(10);
+    const worker = employee({ workHoursPerDay: 10 });
+    // 2600 ÷ 30 ÷ 10 = 8.6667 an hour.
+    expect(hourlySalary(worker, DEFAULT_PAYROLL_SETTINGS)).toBeCloseTo(
+      8.6667,
+      4,
+    );
+    expect(overtimeRates(worker, DEFAULT_PAYROLL_SETTINGS)).toEqual({
+      perHour: 8.6667,
+      regular: 10.8333,
+      weekend: 13,
+    });
+    const payslip = calculatePayslip(
+      worker,
+      MONTH,
+      [
+        day('2026-10-01', 'present', 12), // 2 h beyond 10
+        day('2026-10-02', 'present', 6), // Friday: all 6 h
+      ],
+      DEFAULT_PAYROLL_SETTINGS,
+      0,
+    );
+    expect(payslip).toEqual(
+      expect.objectContaining({
+        overtimeHours: 2,
+        overtimeRate: 10.8333,
+        weekendOvertimeHours: 6,
+        weekendOvertimeRate: 13,
+      }),
+    );
+    expect(overtimePay(payslip)).toBe(99.67); // 21.67 + 78.00
+  });
+
+  it('pays a terminated employee up to the last working day only', () => {
+    // 1–15 October 2026 has 13 working days (Fridays 2 and 9 excluded).
+    const leaver = employee({ terminationDate: '2026-10-15' });
+    const attendance = month(10, {
+      '2026-10-20': day('2026-10-20', 'absent'),
+      '2026-10-21': day('2026-10-21', 'absent'),
+    });
+    const payslip = calculatePayslip(
+      leaver,
+      MONTH,
+      attendance,
+      DEFAULT_PAYROLL_SETTINGS,
+      0,
+    );
+    expect(payslip.workingDays).toBe(13);
+    expect(payslip.presentDays).toBe(13);
+    expect(payslip.absentDays).toBe(0); // days after leaving do not count
+    expect(payslip.basicPay).toBe(1300); // 2600 × 13 / 26
+    expect(payslip.note).toMatch(/last working day 2026-10-15/);
+
+    const staff = calculatePayslip(
+      employee({ role: 'staff', salary: 5200, terminationDate: '2026-10-15' }),
+      MONTH,
+      [],
+      DEFAULT_PAYROLL_SETTINGS,
+      0,
+    );
+    expect(staff.basicPay).toBe(2600);
+
+    const hourly = calculatePayslip(
+      employee({
+        role: 'outsource_worker',
+        hourlyRate: 10,
+        terminationDate: '2026-10-15',
+      }),
+      MONTH,
+      attendance,
+      DEFAULT_PAYROLL_SETTINGS,
+      0,
+    );
+    expect(hourly.hoursWorked).toBe(130); // 13 days × 10 h, none after
+    expect(isEmployedInMonth(leaver, '2026-10')).toBe(true);
+    expect(isEmployedInMonth(leaver, '2026-11')).toBe(false);
   });
 
   it('deducts advances only up to the pay, carrying the rest forward', () => {
@@ -184,7 +291,7 @@ describe('payslip calculation', () => {
     expect(netPay(tooMuch)).toBe(0);
   });
 
-  it('never deducts more than the salary for a month away', () => {
+  it('treats a month of leave like a month of unpaid leave after the paid day', () => {
     const worker = employee({ salary: 1000 });
     const attendance = datesInMonth(MONTH)
       .filter((date) => !isFriday(date))
@@ -196,15 +303,32 @@ describe('payslip calculation', () => {
       DEFAULT_PAYROLL_SETTINGS,
       0,
     );
-    expect(payslip.absenceDeduction).toBe(1000);
+    expect(payslip.absenceFine).toBe(833.33); // 25 × 1000 ÷ 30
+    expect(netPay(payslip)).toBe(166.67);
+  });
+
+  it('never lets deductions take net pay below zero', () => {
+    const payslip = calculatePayslip(
+      employee({ salary: 300 }),
+      MONTH,
+      datesInMonth(MONTH)
+        .filter((date) => !isFriday(date))
+        .map((date) => day(date, 'absent')),
+      DEFAULT_PAYROLL_SETTINGS,
+      1000,
+    );
+    expect(payslip.absenceFine).toBe(250); // 25 × 300 ÷ 30
+    expect(payslip.advanceDeduction).toBe(50); // only what is left
     expect(netPay(payslip)).toBe(0);
   });
 
-  it('pays vacation and deducts leave by default; both can be switched', () => {
+  it('counts leave like absence, pays vacation, and both can be switched', () => {
     const attendance = month(8, {
       '2026-10-03': day('2026-10-03', 'leave'),
-      '2026-10-04': day('2026-10-04', 'vacation'),
-      '2026-10-05': day('2026-10-05', 'vacation'),
+      '2026-10-04': day('2026-10-04', 'leave'),
+      '2026-10-05': day('2026-10-05', 'absent'),
+      '2026-10-06': day('2026-10-06', 'vacation'),
+      '2026-10-07': day('2026-10-07', 'vacation'),
     });
     const byDefault = calculatePayslip(
       employee(),
@@ -214,22 +338,18 @@ describe('payslip calculation', () => {
       0,
     );
     expect(byDefault.vacationDays).toBe(2);
-    expect(byDefault.leaveDays).toBe(1);
-    expect(byDefault.absenceDeduction).toBe(100); // the leave day only
-    expect(byDefault.absenceFine).toBe(0); // leave and vacation are not fined
+    expect(byDefault.absenceDeduction).toBe(0); // vacation is paid
+    expect(byDefault.absenceFine).toBe(173.33); // 3 days off: 2 × 2600 ÷ 30
 
     const switched = calculatePayslip(
       employee(),
       MONTH,
       attendance,
-      {
-        ...DEFAULT_PAYROLL_SETTINGS,
-        leavePaid: true,
-        vacationPaid: false,
-      },
+      { ...DEFAULT_PAYROLL_SETTINGS, leavePaid: true, vacationPaid: false },
       0,
     );
-    expect(switched.absenceDeduction).toBe(200); // the two vacation days
+    expect(switched.absenceFine).toBe(0); // only 1 absent day, which is paid
+    expect(switched.absenceDeduction).toBe(173.33); // 2 vacation days
   });
 
   it('uses the payroll settings', () => {
@@ -244,17 +364,19 @@ describe('payslip calculation', () => {
       MONTH,
       attendance,
       {
-        overtimeBaseRate: 25,
         overtimeMultiplier: 2,
-        absenceFine: 50,
-        absenceFineFreeDays: 0,
+        weekendOvertimeMultiplier: 3,
+        salaryDays: 26,
+        paidDaysOff: 0,
         leavePaid: false,
         vacationPaid: true,
       },
       0,
     );
-    expect(payslip.overtimeRate).toBe(50);
-    expect(payslip.absenceFine).toBe(150);
+    // 2600 ÷ 26 ÷ 8 = 12.5 an hour.
+    expect(payslip.overtimeRate).toBe(25);
+    expect(payslip.weekendOvertimeRate).toBe(37.5);
+    expect(payslip.absenceFine).toBe(300); // 3 × 2600 ÷ 26
   });
 
   it('pays an outsource worker days × hours × rate, without overtime or fines', () => {

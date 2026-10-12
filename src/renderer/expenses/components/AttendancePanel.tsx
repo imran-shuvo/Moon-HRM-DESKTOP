@@ -3,6 +3,8 @@ import {
   ATTENDANCE_STATUSES,
   ATTENDANCE_STATUS_LABELS,
   AttendanceSummary,
+  isEmployedInMonth,
+  isEmployedOn,
   isFriday,
   summarizeAttendance,
   takesAttendance,
@@ -13,10 +15,14 @@ import { errorMessage, useFinanceApi } from '../../data/FinanceApiContext';
 import {
   AttendanceEntry,
   AttendanceStatus,
+  DocumentRecord,
   EMPLOYEE_ROLES,
   EMPLOYEE_ROLE_LABELS,
   Employee,
   EmployeeRole,
+  PayrollSettings,
+  Payslip,
+  SalaryAdvance,
   distinctValues,
   fileTimestamp,
   formatReportDate,
@@ -36,6 +42,12 @@ import {
   weekday,
 } from './AttendancePrintableReport';
 import ConfirmDialog from './ConfirmDialog';
+import PayCalculation, {
+  PayCalculationTable,
+  payCalculation,
+} from './PayCalculation';
+import DocumentDialog from './DocumentDialog';
+import { fileKind } from './DocumentsPanel';
 import ExportPreviewDialog from './ExportPreviewDialog';
 import FilterBar, {
   multiChips,
@@ -142,10 +154,22 @@ const NO_TOTALS: MonthTotals = {
 
 export default function AttendancePanel({
   employees,
+  payrollSettings,
+  salaryAdvances,
+  payslips,
+  documents,
+  onDocumentsSaved,
   onPrint,
   onDirtyChange,
 }: {
   employees: Employee[];
+  /** For the employee report's pay calculation. */
+  payrollSettings: PayrollSettings;
+  salaryAdvances: SalaryAdvance[];
+  payslips: Payslip[];
+  /** All documents; the daily register shows the day's. */
+  documents: DocumentRecord[];
+  onDocumentsSaved: (documents: DocumentRecord[]) => void;
   onPrint: (job: PrintJob) => void;
   /** Tells the app there are unsaved changes, so leaving can be confirmed. */
   onDirtyChange: (dirty: boolean) => void;
@@ -169,6 +193,12 @@ export default function AttendancePanel({
     setFilters((current) => ({ ...current, ...change }));
   const [employeeId, setEmployeeId] = useState('');
   const [preview, setPreview] = useState<PrintJob>();
+  const [uploading, setUploading] = useState(false);
+  const dayDocuments = documents.filter(
+    (document) =>
+      document.documentDate === date &&
+      matchesAny(projects, document.projectName),
+  );
   const dirtyCount = Object.keys(drafts).length;
   const viewMonth = tab === 'daily' ? date.slice(0, 7) : month;
 
@@ -214,8 +244,12 @@ export default function AttendancePanel({
     [workers],
   );
   const needle = search.trim().toLowerCase();
+  // People who had left before the day (or month) shown are not listed.
   const shown = workers.filter(
     (employee) =>
+      (tab === 'daily'
+        ? isEmployedOn(employee, date)
+        : isEmployedInMonth(employee, month)) &&
       matchesAny(roles, employee.role) &&
       matchesAny(projects, employee.projectName) &&
       matchesAny(camps, employee.campName) &&
@@ -370,6 +404,16 @@ export default function AttendancePanel({
     ),
   });
   const selected = workers.find((employee) => employee.id === employeeId);
+  const calculation = selected
+    ? payCalculation(
+        selected,
+        month,
+        entries,
+        payrollSettings,
+        salaryAdvances,
+        payslips,
+      )
+    : undefined;
   const employeeJob = (employee: Employee): PrintJob => ({
     fileName: `attendance_${employee.name.replace(/\s+/g, '-')}_${month}`,
     content: (
@@ -377,6 +421,14 @@ export default function AttendancePanel({
         month={month}
         employee={employee}
         entries={entries}
+        payCalculation={
+          calculation && (
+            <PayCalculationTable
+              calculation={calculation}
+              className="moon-report-table moon-calc-table"
+            />
+          )
+        }
       />
     ),
   });
@@ -671,6 +723,46 @@ export default function AttendancePanel({
             Loading attendance…
           </p>
         )}
+        {ready && tab === 'daily' && (
+          <div className="day-documents">
+            <span className="day-documents-label">
+              <span aria-hidden="true">🗂</span> Signature sheets & documents
+              for this day
+            </span>
+            {dayDocuments.map((document) => (
+              <button
+                className="day-document"
+                key={document.id}
+                onClick={() =>
+                  api.documents.open(document.id).catch((error) =>
+                    setMessage({
+                      kind: 'error',
+                      text: errorMessage(
+                        error,
+                        'The file could not be opened.',
+                      ),
+                    }),
+                  )
+                }
+                title={`${document.category}${document.projectName ? ` · ${document.projectName}` : ''}`}
+                type="button"
+              >
+                <b>{fileKind(document)}</b>
+                {document.title || document.fileName}
+              </button>
+            ))}
+            {dayDocuments.length === 0 && (
+              <span className="day-documents-none">None uploaded yet</span>
+            )}
+            <button
+              className="button button-secondary button-small"
+              onClick={() => setUploading(true)}
+              type="button"
+            >
+              ⇪ Upload signature sheet
+            </button>
+          </div>
+        )}
         {ready && tab === 'daily' && shown.length > 0 && (
           <AttendanceDaily
             date={date}
@@ -708,6 +800,11 @@ export default function AttendancePanel({
             entries={entries}
             onSelect={setEmployeeId}
             onOpenDay={changeDate}
+            payCalculation={
+              calculation && (
+                <PayCalculation calculation={calculation} month={month} />
+              )
+            }
           />
         )}
         {ready && tab !== 'employee' && shown.length === 0 && (
@@ -763,6 +860,28 @@ export default function AttendancePanel({
           {plural(dirtyCount, 'unsaved change')} for {formatReportDate(date)}{' '}
           will be lost. Cancel and save them first to keep them.
         </ConfirmDialog>
+      )}
+      {uploading && (
+        <DocumentDialog
+          document={undefined}
+          defaults={{
+            documentDate: date,
+            category: 'Signature sheet',
+            projectName: projects.length === 1 ? projects[0] : '',
+          }}
+          employees={employees}
+          documents={documents}
+          onClose={() => setUploading(false)}
+          onSaved={(saved, finished) => {
+            onDocumentsSaved(saved);
+            if (!finished) return;
+            setUploading(false);
+            setMessage({
+              kind: 'ok',
+              text: `${plural(saved.length, 'document')} uploaded for ${formatReportDate(date)}.`,
+            });
+          }}
+        />
       )}
       {preview && (
         <ExportPreviewDialog

@@ -89,6 +89,7 @@ describe('backup file format', () => {
       attendance: 0,
       salaryAdvances: 0,
       payslips: 0,
+      documents: 0,
     });
   });
 

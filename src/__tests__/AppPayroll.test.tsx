@@ -31,6 +31,7 @@ function employee(overrides: Partial<Employee>): Employee {
     campName: 'Camp A',
     workHoursPerDay: 8,
     hourlyRate: null,
+    terminationDate: '',
     ...overrides,
   };
 }
@@ -309,6 +310,76 @@ describe('Attendance and payroll', () => {
     expect(screen.getByLabelText('Date')).toHaveValue('2026-10-05');
   });
 
+  it('explains the month’s pay on the employee report, matching the payslip', async () => {
+    await renderApp({
+      attendance: karimOctober(),
+      salaryAdvances: [
+        {
+          id: '44444444-4444-4444-8444-444444444444',
+          employeeId: KARIM,
+          date: '2026-10-10',
+          amount: 300,
+          note: '',
+        },
+      ],
+    });
+    openSection('Attendance');
+    openTab('Employee report');
+    const picker = await screen.findByLabelText('Employee');
+    expect(
+      within(picker).getByRole('option', {
+        name: 'Karim · Company worker · 2400000001',
+      }),
+    ).toBeInTheDocument();
+    fireEvent.change(picker, { target: { value: KARIM } });
+
+    const calc = within(
+      screen.getByRole('region', {
+        name: 'How October 2026 pay is worked out',
+      }),
+    );
+    const row = (label: string) =>
+      (calc.getByText(label).closest('tr') as HTMLElement).textContent?.replace(
+        /\u00a0/g,
+        ' ',
+      );
+    expect(row('Basic salary')).toContain('2,600.00');
+    // Karim: basic 2,600, 8 basic hours → 2600 ÷ 30 ÷ 8 = 10.8333 an hour.
+    expect(row('Per-hour salary')).toContain(
+      '2,600.00 ÷ 30 days ÷ 8 basic hours = 10.8333',
+    );
+    expect(row('Overtime (working days)')).toContain(
+      '2 h × 10.8333 × 1.25 = 2 h × 13.5417',
+    );
+    expect(row('Overtime (working days)')).toContain('01-Oct 2 h');
+    expect(row('Overtime (working days)')).toContain('27.08');
+    expect(row('Unpaid leave')).toContain(
+      '2 absent + 0 leave = 2 days; 1 paid; 1 unpaid × 2,600.00 ÷ 30',
+    );
+    expect(row('Unpaid leave')).toContain('− 86.67');
+    expect(row('Not recorded')).toContain('2 working days without attendance');
+    expect(row('Advance')).toContain('− 300.00');
+    // 2600 + 27.08 − 86.67 − 300
+    expect(row('Net pay')).toContain('SAR 2,240.41');
+
+    // The payslip the app creates comes to the same amount.
+    openSection('Payroll');
+    fireEvent.click(screen.getByRole('button', { name: 'Create payslips' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(
+      await within(dialog).findByRole('button', { name: 'Create 3 payslips' }),
+    );
+    await screen.findByText(/3 payslips created/);
+    openSection('Attendance');
+    openTab('Employee report');
+    fireEvent.change(await screen.findByLabelText('Employee'), {
+      target: { value: KARIM },
+    });
+    expect(
+      screen.getByText(/The saved payslip for October 2026 matches: net pay/),
+    ).toBeInTheDocument();
+  });
+
   it('creates payslips for one project, then everyone else, never touching existing ones', async () => {
     const memory = await renderApp({
       attendance: karimOctober(),
@@ -349,17 +420,17 @@ describe('Attendance and payroll', () => {
     const karim = memory
       .snapshot()
       .payslips.find((p) => p.employeeId === KARIM);
-    // 2600 basic + 2 h × 30 overtime − 2 days × 100 − 1 × 20 fine − 300 advance
+    // 2600 basic + 2 h × 13.5417 overtime − 86.67 (1 unpaid day) − 300 advance
     expect(karim).toEqual(
       expect.objectContaining({
         basicPay: 2600,
         overtimeHours: 2,
-        overtimeRate: 30,
-        overtimePay: 60,
-        absenceDeduction: 200,
-        absenceFine: 20,
+        overtimeRate: 13.5417,
+        overtimePay: 27.08,
+        absenceDeduction: 0,
+        absenceFine: 86.67,
         advanceDeduction: 300,
-        netPay: 2140,
+        netPay: 2240.41,
         status: 'unpaid',
       }),
     );
@@ -404,7 +475,7 @@ describe('Attendance and payroll', () => {
     const karimRow = screen
       .getByRole('button', { name: 'Open payslip for Karim' })
       .closest('tr') as HTMLElement;
-    expect(karimRow).toHaveTextContent('2,440.00');
+    expect(karimRow).toHaveTextContent('2,540.41');
     expect(karimRow.textContent).not.toMatch(/SAR/);
 
     fireEvent.click(
@@ -438,7 +509,7 @@ describe('Attendance and payroll', () => {
     ).toBeInTheDocument();
     expect(
       memory.snapshot().payslips.find((p) => p.employeeId === KARIM)?.netPay,
-    ).toBe(2590); // 2600 + 60 overtime − 200 − 20 fine + 150 allowance
+    ).toBe(2690.41); // 2540.41 + 150 allowance
 
     fireEvent.click(
       within(dialog).getByRole('button', { name: '✓ Mark as paid' }),
@@ -553,6 +624,69 @@ describe('Attendance and payroll', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Still owed' }));
     const row = screen.getByText('Karim').closest('tr') as HTMLElement;
     expect(row).toHaveTextContent('250.00');
+  });
+
+  it('shows the attendance and pay policy in Settings, matching the payroll settings', async () => {
+    const memory = await renderApp();
+    const savePdf = jest.spyOn(memory.api.reports, 'savePdf');
+    openSection('Settings');
+    const policy = () =>
+      within(screen.getByRole('region', { name: 'Terms & policy' }));
+    const text = () =>
+      (
+        screen.getByRole('region', { name: 'Terms & policy' }).textContent ?? ''
+      ).replace(/\u00a0/g, ' ');
+    expect(policy().getByText('Per-hour salary')).toBeInTheDocument();
+    expect(text()).toContain(
+      'Per-hour salary = (basic salary ÷ 30) ÷ basic hours a day.',
+    );
+    expect(text()).toContain('2,600.00 ÷ 30 ÷ 10 = 8.6667 SAR an hour.');
+    expect(text()).toContain('paid at per-hour salary × 1.25');
+    expect(text()).toContain('paid at per-hour salary × 1.5');
+    expect(text()).toContain('1 absent + 1 leave day = 86.67 SAR');
+    expect(text()).toContain(
+      'The standard working day is 10 hours; a few employees have 8.',
+    );
+
+    // The policy follows the settings.
+    openSection('Payroll');
+    fireEvent.click(
+      screen.getByRole('button', { name: '⚙ Payroll settings' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Payroll settings' });
+    fireEvent.change(
+      within(dialog).getByLabelText(/^Overtime on working days/),
+      {
+        target: { value: '1.5' },
+      },
+    );
+    fireEvent.click(
+      within(dialog).getByRole('switch', {
+        name: /Leave days are always paid/,
+      }),
+    );
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Save payroll settings' }),
+    );
+    await screen.findByText(/Payroll settings saved/);
+    expect(memory.snapshot().payrollSettings).toEqual(
+      expect.objectContaining({
+        overtimeMultiplier: 1.5,
+        weekendOvertimeMultiplier: 1.5,
+        leavePaid: true,
+      }),
+    );
+    openSection('Settings');
+    expect(text()).toContain(
+      'hours beyond the basic hours are overtime, paid at per-hour salary × 1.5.',
+    );
+    expect(text()).toContain('Leave days are always paid and not counted.');
+
+    fireEvent.click(
+      policy().getByRole('button', { name: '↓ Print / Save PDF' }),
+    );
+    await waitFor(() => expect(savePdf).toHaveBeenCalledTimes(1));
+    expect(savePdf.mock.calls[0][0]).toMatch(/^payroll-policy_/);
   });
 
   it('makes vacation unpaid when the setting is switched off', async () => {

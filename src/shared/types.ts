@@ -83,6 +83,8 @@ export type Employee = {
   workHoursPerDay: number;
   /** SAR per hour for outsource workers, or null when not recorded. */
   hourlyRate: number | null;
+  /** Last working day 'YYYY-MM-DD' if terminated, otherwise ''. Pay stops after it. */
+  terminationDate: string;
 };
 
 /** Fields the user edits for an employee. */
@@ -148,10 +150,16 @@ export type PayslipInput = {
   hourlyRate: number;
   /** Earned from the basic salary or hourly rate, before deductions. */
   basicPay: number;
+  /** Regular-day overtime: hours beyond the basic hours on a working day. */
   overtimeHours: number;
   overtimeRate: number;
+  /** Friday overtime: every hour worked on a Friday. */
+  weekendOvertimeHours: number;
+  weekendOvertimeRate: number;
   allowance: number;
+  /** Unpaid vacation: a day's salary for each vacation day, if unpaid. */
   absenceDeduction: number;
+  /** Unpaid leave: a day's salary for each absent or leave day beyond the paid ones. */
   absenceFine: number;
   advanceDeduction: number;
   otherDeduction: number;
@@ -175,13 +183,15 @@ export type Payslip = PayslipInput & {
 };
 
 export type PayrollSettings = {
-  /** Overtime pays overtimeBaseRate × overtimeMultiplier per hour. */
-  overtimeBaseRate: number;
+  /** Regular-day overtime pays the per-hour salary × this (1.25). */
   overtimeMultiplier: number;
-  /** Fine per absent day beyond the free days. */
-  absenceFine: number;
-  absenceFineFreeDays: number;
-  /** Whether leave and vacation days are paid by default. */
+  /** Friday overtime pays the per-hour salary × this (1.5). */
+  weekendOvertimeMultiplier: number;
+  /** A day's salary is the basic salary ÷ this (30). */
+  salaryDays: number;
+  /** Absent and leave days in a month that are still paid (1). */
+  paidDaysOff: number;
+  /** Paid leave is not counted as a day off at all. */
   leavePaid: boolean;
   vacationPaid: boolean;
 };
@@ -206,6 +216,36 @@ export type AttachmentContent = {
   data: Uint8Array;
 };
 
+/** A stored file such as a signature sheet, filed by date and project. */
+export type DocumentRecord = {
+  id: string;
+  title: string;
+  category: string;
+  projectName: string;
+  campName: string;
+  /** The day the document is for, 'YYYY-MM-DD'. */
+  documentDate: string;
+  /** The employee it concerns, or ''. */
+  employeeId: string;
+  note: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedAt: number;
+};
+
+/** Details the user enters for documents; the same for every file uploaded together. */
+export type DocumentInput = Pick<
+  DocumentRecord,
+  | 'title'
+  | 'category'
+  | 'projectName'
+  | 'campName'
+  | 'documentDate'
+  | 'employeeId'
+  | 'note'
+>;
+
 export type FinanceSnapshot = {
   expenses: Expense[];
   budgetTransactions: BudgetTransaction[];
@@ -219,6 +259,8 @@ export type FinanceSnapshot = {
   salaryAdvances: SalaryAdvance[];
   payslips: Payslip[];
   payrollSettings: PayrollSettings;
+  /** Uploaded documents, without their file contents. */
+  documents: DocumentRecord[];
 };
 
 /** Data saved in localStorage/IndexedDB by the pre-database version of the app. */
@@ -265,6 +307,7 @@ export type BackupCounts = {
   attendance: number;
   salaryAdvances: number;
   payslips: number;
+  documents: number;
 };
 
 export type BackupFileInfo = {
@@ -358,6 +401,19 @@ export type FinanceApi = {
     /** Marks payslips paid on `paidDate`, or unpaid when it is null. */
     setPaid: (ids: string[], paidDate: string | null) => Promise<Payslip[]>;
     remove: (id: string) => Promise<void>;
+  };
+  documents: {
+    /** Stores each file as its own document with the same details. */
+    upload: (
+      input: DocumentInput,
+      files: AttachmentUpload[],
+    ) => Promise<DocumentRecord[]>;
+    update: (id: string, input: DocumentInput) => Promise<DocumentRecord>;
+    remove: (id: string) => Promise<void>;
+    /** Opens the file in the operating system's default viewer. */
+    open: (id: string) => Promise<void>;
+    /** Saves a copy where the user chooses; undefined when cancelled. */
+    saveAs: (id: string) => Promise<string | undefined>;
   };
   payroll: {
     updateSettings: (settings: PayrollSettings) => Promise<PayrollSettings>;

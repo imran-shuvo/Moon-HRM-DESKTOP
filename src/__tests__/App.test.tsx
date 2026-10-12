@@ -61,6 +61,7 @@ function testEmployee(name: string, index: number): Employee {
     campName: '',
     workHoursPerDay: 8,
     hourlyRate: null,
+    terminationDate: '',
   };
 }
 

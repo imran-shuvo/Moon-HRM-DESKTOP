@@ -55,6 +55,13 @@ const financeApi: FinanceApi = {
     setPaid: (ids, paidDate) => invoke(IPC.payslipSetPaid, ids, paidDate),
     remove: (id) => invoke(IPC.payslipDelete, id),
   },
+  documents: {
+    upload: (input, files) => invoke(IPC.documentUpload, input, files),
+    update: (id, input) => invoke(IPC.documentUpdate, id, input),
+    remove: (id) => invoke(IPC.documentDelete, id),
+    open: (id) => invoke(IPC.documentOpen, id),
+    saveAs: (id) => invoke(IPC.documentSaveAs, id),
+  },
   payroll: {
     updateSettings: (settings) => invoke(IPC.payrollUpdateSettings, settings),
   },

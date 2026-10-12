@@ -20,6 +20,7 @@ const NAVIGATION: {
       { label: 'Employees', icon: '☺' },
       { label: 'Attendance', icon: '✓' },
       { label: 'Payroll', icon: '¤' },
+      { label: 'Documents', icon: '🗂' },
     ],
   },
   {

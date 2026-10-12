@@ -14,16 +14,19 @@ import type {
  * Attendance and salary rules.
  *
  * - Staff have no attendance; they are paid their basic salary.
- * - Company and outsource camp workers are paid by the day: a monthly basic
- *   salary, less a day's pay for each absent day, and each leave or vacation
- *   day unless the settings make it paid (a day's pay is the basic salary
- *   divided by the month's working days). Leave is unpaid and vacation paid
- *   by default. Hours worked beyond
- *   their basic hours a day are overtime. Absent days beyond the free days
- *   are fined.
+ * - Company and outsource camp workers are paid their monthly basic salary.
+ *   Per-hour salary = basic ÷ 30 ÷ basic hours a day (10 by default).
+ *   Overtime on a working day (hours beyond the basic hours) pays the
+ *   per-hour salary × 1.25; every hour worked on a Friday pays × 1.5.
+ *   Absent and leave days count together: one a month is paid, and each one
+ *   after that is unpaid leave, deducted a day's salary (basic ÷ 30).
+ *   Vacation is paid by default.
  * - Outsource workers are paid by the hour: hours worked × rate per hour.
  * - Friday is the weekly holiday: it is not a working day, and hours worked
  *   on a Friday are all overtime.
+ * - A terminated employee is paid up to their last working day: the
+ *   monthly salary is cut to the working days up to that day, and nothing
+ *   after it counts.
  * - Unpaid advances are deducted from the next payslip, up to its pay.
  *
  * These are only the defaults; every amount on a payslip can be edited.
@@ -55,15 +58,15 @@ export const ATTENDANCE_STATUS_CODES: Record<AttendanceStatus, string> = {
 };
 
 export const DEFAULT_PAYROLL_SETTINGS: PayrollSettings = {
-  overtimeBaseRate: 20,
-  overtimeMultiplier: 1.5,
-  absenceFine: 20,
-  absenceFineFreeDays: 1,
+  overtimeMultiplier: 1.25,
+  weekendOvertimeMultiplier: 1.5,
+  salaryDays: 30,
+  paidDaysOff: 1,
   leavePaid: false,
   vacationPaid: true,
 };
 
-export const DEFAULT_WORK_HOURS_PER_DAY = 8;
+export const DEFAULT_WORK_HOURS_PER_DAY = 10;
 
 export type PayBasis = 'monthly' | 'daily' | 'hourly';
 
@@ -109,6 +112,22 @@ export function workingDaysInMonth(month: string) {
   return datesInMonth(month).filter((date) => !isFriday(date)).length;
 }
 
+/** Whether the employee still worked here on `date` (not yet terminated). */
+export function isEmployedOn(
+  employee: Pick<Employee, 'terminationDate'>,
+  date: string,
+) {
+  return !employee.terminationDate || date <= employee.terminationDate;
+}
+
+/** Employees terminated before the month starts get no payslip for it. */
+export function isEmployedInMonth(
+  employee: Pick<Employee, 'terminationDate'>,
+  month: string,
+) {
+  return isEmployedOn(employee, `${month}-01`);
+}
+
 /** Hours that count as overtime for a day's attendance. */
 export function overtimeHoursFor(
   entry: Pick<AttendanceEntry, 'date' | 'status' | 'hours'>,
@@ -120,7 +139,10 @@ export function overtimeHoursFor(
 }
 
 export type AttendanceSummary = {
+  /** Working days in the whole month. */
   workingDays: number;
+  /** Working days up to the last working day of a terminated employee. */
+  employedWorkingDays: number;
   presentDays: number;
   absentDays: number;
   leaveDays: number;
@@ -131,17 +153,24 @@ export type AttendanceSummary = {
   /** Fridays on which the employee worked. */
   fridaysWorked: number;
   hoursWorked: number;
+  /** All overtime hours, regular and Friday. */
   overtimeHours: number;
+  /** The Friday part of overtimeHours. */
+  weekendOvertimeHours: number;
 };
 
 /** Totals for one employee's attendance in a month. */
 export function summarizeAttendance(
-  employee: Pick<Employee, 'id' | 'workHoursPerDay'>,
+  employee: Pick<Employee, 'id' | 'workHoursPerDay' | 'terminationDate'>,
   entries: AttendanceEntry[],
   month: string,
 ): AttendanceSummary {
+  const employedWorkingDays = datesInMonth(month).filter(
+    (date) => !isFriday(date) && isEmployedOn(employee, date),
+  ).length;
   const summary: AttendanceSummary = {
     workingDays: workingDaysInMonth(month),
+    employedWorkingDays,
     presentDays: 0,
     absentDays: 0,
     leaveDays: 0,
@@ -151,11 +180,15 @@ export function summarizeAttendance(
     fridaysWorked: 0,
     hoursWorked: 0,
     overtimeHours: 0,
+    weekendOvertimeHours: 0,
   };
   entries
     .filter(
       (entry) =>
-        entry.employeeId === employee.id && entry.date.startsWith(month),
+        entry.employeeId === employee.id &&
+        entry.date.startsWith(month) &&
+        // Nothing after the last working day counts.
+        isEmployedOn(employee, entry.date),
     )
     .forEach((entry) => {
       const friday = isFriday(entry.date);
@@ -165,15 +198,17 @@ export function summarizeAttendance(
           entry,
           employee.workHoursPerDay,
         );
-        if (friday) summary.fridaysWorked += 1;
-        else summary.presentDays += 1;
+        if (friday) {
+          summary.fridaysWorked += 1;
+          summary.weekendOvertimeHours += entry.hours;
+        } else summary.presentDays += 1;
       } else if (!friday) {
         summary[`${entry.status}Days`] += 1;
       }
     });
   summary.notRecordedDays = Math.max(
     0,
-    summary.workingDays -
+    employedWorkingDays -
       summary.presentDays -
       summary.absentDays -
       summary.leaveDays -
@@ -182,6 +217,7 @@ export function summarizeAttendance(
   );
   summary.hoursWorked = roundMoney(summary.hoursWorked);
   summary.overtimeHours = roundMoney(summary.overtimeHours);
+  summary.weekendOvertimeHours = roundMoney(summary.weekendOvertimeHours);
   return summary;
 }
 
@@ -209,22 +245,63 @@ export function outstandingAdvance(
   return roundMoney(Math.max(0, given - deducted));
 }
 
-export function overtimeRate(settings: PayrollSettings) {
-  return roundMoney(settings.overtimeBaseRate * settings.overtimeMultiplier);
+/** Rates are kept to 4 decimals so pay is not distorted by early rounding. */
+export function roundRate(value: number) {
+  return Math.round(value * 10000 * (1 + Number.EPSILON)) / 10000 || 0;
+}
+
+/** Per-hour salary = basic salary ÷ salary days ÷ basic hours a day. */
+export function hourlySalary(
+  employee: Pick<Employee, 'salary' | 'workHoursPerDay'>,
+  settings: Pick<PayrollSettings, 'salaryDays'>,
+) {
+  const basic = employee.salary ?? 0;
+  if (!settings.salaryDays || !employee.workHoursPerDay) return 0;
+  return basic / settings.salaryDays / employee.workHoursPerDay;
+}
+
+/** Overtime pay per hour: the per-hour salary × the regular or Friday multiplier. */
+export function overtimeRates(
+  employee: Pick<Employee, 'salary' | 'workHoursPerDay'>,
+  settings: PayrollSettings,
+) {
+  const perHour = hourlySalary(employee, settings);
+  return {
+    perHour: roundRate(perHour),
+    regular: roundRate(perHour * settings.overtimeMultiplier),
+    weekend: roundRate(perHour * settings.weekendOvertimeMultiplier),
+  };
+}
+
+/** Overtime pay on a payslip, regular plus Friday; matches the database. */
+export function overtimePay(
+  input: Pick<
+    PayslipInput,
+    | 'overtimeHours'
+    | 'overtimeRate'
+    | 'weekendOvertimeHours'
+    | 'weekendOvertimeRate'
+  >,
+) {
+  return roundMoney(
+    roundMoney(input.overtimeHours * input.overtimeRate) +
+      roundMoney(input.weekendOvertimeHours * input.weekendOvertimeRate),
+  );
 }
 
 /** Pay before deductions. */
 export function grossPay(
   input: Pick<
     PayslipInput,
-    'basicPay' | 'overtimeHours' | 'overtimeRate' | 'allowance'
+    | 'basicPay'
+    | 'overtimeHours'
+    | 'overtimeRate'
+    | 'weekendOvertimeHours'
+    | 'weekendOvertimeRate'
+    | 'allowance'
   >,
 ) {
-  return roundMoney(
-    input.basicPay +
-      roundMoney(input.overtimeHours * input.overtimeRate) +
-      input.allowance,
-  );
+  return roundMoney(input.basicPay + overtimePay(input) + input.allowance);
 }
 
 export function totalDeductions(
@@ -262,10 +339,16 @@ export function calculatePayslip(
   const basicSalary = employee.salary ?? 0;
   const hourlyRate = employee.hourlyRate ?? 0;
   const summary = summarizeAttendance(employee, attendance, month);
+  const { workingDays, employedWorkingDays } = summary;
+  // Multiply before dividing so whole months come out exactly.
+  const dayShare = (days: number) =>
+    workingDays ? (basicSalary * days) / workingDays : 0;
+  const ended =
+    employee.terminationDate && employee.terminationDate.startsWith(month);
   const base: PayslipInput = {
     employeeId: employee.id,
     month,
-    workingDays: summary.workingDays,
+    workingDays: employedWorkingDays,
     presentDays: 0,
     absentDays: 0,
     leaveDays: 0,
@@ -277,16 +360,26 @@ export function calculatePayslip(
     basicPay: 0,
     overtimeHours: 0,
     overtimeRate: 0,
+    weekendOvertimeHours: 0,
+    weekendOvertimeRate: 0,
     allowance: 0,
     absenceDeduction: 0,
     absenceFine: 0,
     advanceDeduction: 0,
     otherDeduction: 0,
-    note: '',
+    note: ended
+      ? `Terminated: last working day ${employee.terminationDate}. Paid ${employedWorkingDays} of ${workingDays} working days.`
+      : '',
   };
+  // The monthly salary, cut to the working days employed.
+  const salaryPay = roundMoney(
+    employedWorkingDays === workingDays
+      ? basicSalary
+      : dayShare(employedWorkingDays),
+  );
   let input: PayslipInput;
   if (basis === 'monthly') {
-    input = { ...base, basicPay: basicSalary };
+    input = { ...base, basicPay: salaryPay };
   } else {
     const days = {
       presentDays: summary.presentDays,
@@ -303,28 +396,32 @@ export function calculatePayslip(
         basicPay: roundMoney(summary.hoursWorked * hourlyRate),
       };
     } else {
-      // Multiply before dividing so a full month off deducts exactly the salary.
-      const unpaidDays =
-        summary.absentDays +
-        (settings.leavePaid ? 0 : summary.leaveDays) +
-        (settings.vacationPaid ? 0 : summary.vacationDays);
+      // Absent and leave days count together; the first paidDaysOff are
+      // paid, and each one after that is unpaid leave: a day's salary
+      // (basic ÷ salary days) is deducted.
+      const daysOff =
+        summary.absentDays + (settings.leavePaid ? 0 : summary.leaveDays);
+      const unpaidLeave = Math.max(0, daysOff - settings.paidDaysOff);
+      const unpaidVacation = settings.vacationPaid ? 0 : summary.vacationDays;
+      const daySalary = (count: number) =>
+        settings.salaryDays ? (basicSalary * count) / settings.salaryDays : 0;
+      const absenceFine = roundMoney(
+        Math.min(salaryPay, daySalary(unpaidLeave)),
+      );
+      const rates = overtimeRates(employee, settings);
       input = {
         ...base,
         ...days,
-        basicPay: basicSalary,
-        overtimeHours: summary.overtimeHours,
-        overtimeRate: overtimeRate(settings),
-        absenceDeduction: summary.workingDays
-          ? roundMoney(
-              Math.min(
-                basicSalary,
-                (basicSalary * unpaidDays) / summary.workingDays,
-              ),
-            )
-          : 0,
-        absenceFine: roundMoney(
-          Math.max(0, summary.absentDays - settings.absenceFineFreeDays) *
-            settings.absenceFine,
+        basicPay: salaryPay,
+        overtimeHours: roundMoney(
+          summary.overtimeHours - summary.weekendOvertimeHours,
+        ),
+        overtimeRate: rates.regular,
+        weekendOvertimeHours: summary.weekendOvertimeHours,
+        weekendOvertimeRate: rates.weekend,
+        absenceFine,
+        absenceDeduction: roundMoney(
+          Math.min(salaryPay - absenceFine, daySalary(unpaidVacation)),
         ),
       };
     }

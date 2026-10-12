@@ -94,6 +94,24 @@ export type BackupEmployee = {
   role?: string;
   workHoursPerDay?: number;
   hourlyRate?: number | null;
+  terminationDate?: string | null;
+};
+
+export type BackupDocumentFile = {
+  id: string;
+  title: string;
+  category: string;
+  projectName: string;
+  campName: string;
+  documentDate: string;
+  employeeId: string | null;
+  note: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  contentBase64: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type BackupAttendance = {
@@ -133,6 +151,9 @@ export type BackupPayslip = {
   leaveDays: number;
   /** Absent in backups made before vacation was added. */
   vacationDays?: number;
+  /** Absent in backups made before Friday overtime was separate. */
+  weekendOvertimeHours?: number;
+  weekendOvertimeRate?: number;
   holidayDays: number;
   hoursWorked: number;
   basicSalary: number;
@@ -152,11 +173,19 @@ export type BackupPayslip = {
   updatedAt: string;
 };
 
+/**
+ * Backups made before the company payroll policy have a flat overtime rate
+ * (overtimeBaseRate) and absence fine (absenceFine, absenceFineFreeDays);
+ * newer ones have the policy fields.
+ */
 export type BackupPayrollSettings = {
-  overtimeBaseRate: number;
   overtimeMultiplier: number;
-  absenceFine: number;
-  absenceFineFreeDays: number;
+  weekendOvertimeMultiplier?: number;
+  salaryDays?: number;
+  paidDaysOff?: number;
+  overtimeBaseRate?: number;
+  absenceFine?: number;
+  absenceFineFreeDays?: number;
   // Absent in backups made before vacation was added.
   leavePaid?: boolean;
   vacationPaid?: boolean;
@@ -176,6 +205,7 @@ export type BackupData = {
   salaryAdvances?: BackupSalaryAdvance[];
   payslips?: BackupPayslip[];
   payrollSettings?: BackupPayrollSettings;
+  documents?: BackupDocumentFile[];
 };
 
 export type BackupDocument = {
@@ -207,6 +237,7 @@ export function countRecords(data: BackupData): BackupCounts {
     attendance: data.attendance?.length ?? 0,
     salaryAdvances: data.salaryAdvances?.length ?? 0,
     payslips: data.payslips?.length ?? 0,
+    documents: data.documents?.length ?? 0,
   };
 }
 
@@ -364,6 +395,9 @@ function validateData(value: unknown): BackupData {
               (r.hourlyRate === undefined ||
                 r.hourlyRate === null ||
                 isNumber(r.hourlyRate)) &&
+              (r.terminationDate === undefined ||
+                r.terminationDate === null ||
+                isDate(r.terminationDate)) &&
               isTimestamp(r.createdAt) &&
               isTimestamp(r.updatedAt),
           ),
@@ -438,6 +472,9 @@ function validateData(value: unknown): BackupData {
               r.otherDeduction,
             ].every(isNumber) &&
             (r.vacationDays === undefined || isNumber(r.vacationDays)) &&
+            [r.weekendOvertimeHours, r.weekendOvertimeRate].every(
+              (field) => field === undefined || isNumber(field),
+            ) &&
             ((r.status === 'paid' && isDate(r.paidDate)) ||
               (r.status === 'unpaid' && r.paidDate === null)) &&
             isTimestamp(r.createdAt) &&
@@ -445,14 +482,20 @@ function validateData(value: unknown): BackupData {
         );
   if (raw.payrollSettings !== undefined) {
     const settings = raw.payrollSettings as Record<string, unknown> | null;
+    const policy = [
+      settings?.weekendOvertimeMultiplier,
+      settings?.salaryDays,
+      settings?.paidDaysOff,
+    ];
+    const flat = [
+      settings?.overtimeBaseRate,
+      settings?.absenceFine,
+      settings?.absenceFineFreeDays,
+    ];
     if (
       !settings ||
-      ![
-        settings.overtimeBaseRate,
-        settings.overtimeMultiplier,
-        settings.absenceFine,
-        settings.absenceFineFreeDays,
-      ].every(isNumber) ||
+      !isNumber(settings.overtimeMultiplier) ||
+      !(policy.every(isNumber) || flat.every(isNumber)) ||
       ![settings.leavePaid, settings.vacationPaid].every(
         (flag) => flag === undefined || typeof flag === 'boolean',
       )
@@ -461,6 +504,31 @@ function validateData(value: unknown): BackupData {
     }
     data.payrollSettings = settings as BackupPayrollSettings;
   }
+
+  data.documents =
+    raw.documents === undefined
+      ? undefined
+      : checkRecords(
+          raw.documents,
+          'Documents',
+          (r) =>
+            isString(r.id) &&
+            [
+              r.title,
+              r.category,
+              r.projectName,
+              r.campName,
+              r.note,
+              r.fileName,
+              r.mimeType,
+              r.contentBase64,
+            ].every(isString) &&
+            isDate(r.documentDate) &&
+            (r.employeeId === null || isString(r.employeeId)) &&
+            isNumber(r.sizeBytes) &&
+            isTimestamp(r.createdAt) &&
+            isTimestamp(r.updatedAt),
+        );
 
   // Referential integrity, so a restore never fails half way on a foreign key.
   const categories = new Set(data.categories.map((item) => item.name));
@@ -487,6 +555,11 @@ function validateData(value: unknown): BackupData {
     ['an advance', data.salaryAdvances],
     ['a payslip', data.payslips],
   ];
+  data.documents?.forEach((document) => {
+    if (document.employeeId !== null && !employeeIds.has(document.employeeId)) {
+      invalid('a document belongs to a missing employee.');
+    }
+  });
   payroll.forEach(([label, records]) =>
     records?.forEach((record) => {
       if (!employeeIds.has(record.employeeId)) {

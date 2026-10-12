@@ -45,20 +45,33 @@ Built with Electron, React and TypeScript.
   - *Payroll settings* (⚙): overtime rate, fines, and whether leave and
     vacation are paid.
 
-  Pay rules:
-  - Company and camp workers: basic salary, less a day's pay for each absent
-    day (and each leave or vacation day if it is unpaid). Hours beyond their
-    basic hours a day, and all Friday hours, are overtime at 20 × 1.5 an hour.
-    Absent days beyond the first are fined 20.
+  Pay rules (defaults, all editable in Payroll settings):
+  - Company and camp workers: monthly basic salary. Per-hour salary =
+    basic ÷ 30 ÷ basic hours (10 for most, 8 for a few). Overtime on a
+    working day (hours beyond the basic hours) pays per-hour salary × 1.25;
+    every hour on a Friday pays × 1.50. Absent and leave days count
+    together: one a month is paid, and each day after that is unpaid leave,
+    deducted a day's salary (basic ÷ 30). Vacation and holidays are paid.
   - Outsource workers: hours worked × rate per hour.
   - Staff: basic salary.
+  - A terminated employee is paid up to their last working day (salary ×
+    working days employed ÷ working days in the month) and gets no payslip
+    after that month.
   - Advances are deducted from the next payslip up to its pay; the rest
     carries forward.
+
+  **Settings → Terms & policy** explains all of these rules in plain
+  language, always using the current payroll settings, and prints as a PDF.
 
   Every amount on a payslip can be edited. Paid payslips are locked until
   marked unpaid. Payslips and the payroll sheet export as PDFs. An employee
   with attendance, advances or payslips cannot be deleted, so payroll
   history is never lost. Amounts are in SAR.
+- **Documents**: upload signature sheets, timesheets, contracts and other
+  files, many at once. Each is filed by day, category, project and camp,
+  shown in a folder per project, and can be opened or saved as a copy. The
+  daily attendance register shows that day's signature sheets and uploads
+  new ones.
 - **Types and departments**: chosen from dropdowns when adding an expense;
   a new one can be typed there and is saved for next time.
 - **Backup & restore**: automatic and manual backups to a single

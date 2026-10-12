@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { formatMonthName } from '../../../shared/months';
-import { payBasis, roundMoney } from '../../../shared/payroll';
+import {
+  isEmployedInMonth,
+  payBasis,
+  roundMoney,
+} from '../../../shared/payroll';
 import { PayslipStatus } from '../../../shared/types';
 import { errorMessage, useFinanceApi } from '../../data/FinanceApiContext';
 import {
@@ -91,6 +95,7 @@ export default function PayrollPayslips({
   const monthPayslips = payslips.filter((payslip) => payslip.month === month);
   const missing = employees.filter(
     (employee) =>
+      isEmployedInMonth(employee, month) &&
       !monthPayslips.some((payslip) => payslip.employeeId === employee.id),
   ).length;
   const projects = withNone(

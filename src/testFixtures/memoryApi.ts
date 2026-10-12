@@ -20,6 +20,7 @@ import {
   recordId,
   recordIds,
   validateAttendanceDay,
+  validateDocumentInput,
   validatePaidDate,
   validatePayrollSettings,
   validatePayslipInputs,
@@ -35,7 +36,7 @@ import {
   DEFAULT_PAYROLL_SETTINGS,
   assertNoPayrollHistory,
   netPay,
-  roundMoney,
+  overtimePay,
   takesAttendance,
 } from '../shared/payroll';
 import {
@@ -108,7 +109,9 @@ export default function createMemoryApi(
     salaryAdvances: [...(seed.salaryAdvances ?? [])],
     payslips: [...(seed.payslips ?? [])],
     payrollSettings: { ...(seed.payrollSettings ?? DEFAULT_PAYROLL_SETTINGS) },
+    documents: [...(seed.documents ?? [])],
   };
+  const documentFiles = new Map<string, AttachmentUpload>();
   const findEmployee = (id: string) => {
     const employee = state.employees.find((item) => item.id === id);
     if (!employee) {
@@ -336,6 +339,16 @@ export default function createMemoryApi(
               `${employee.name} is staff, and staff have no attendance.`,
             );
           }
+          if (
+            row.status &&
+            employee.terminationDate &&
+            date > employee.terminationDate
+          ) {
+            throw new AppError(
+              'VALIDATION',
+              `${employee.name}'s last working day was ${employee.terminationDate}, so no attendance can be recorded after it.`,
+            );
+          }
         });
         rows.forEach((row) => {
           attendance = attendance.filter(
@@ -437,7 +450,7 @@ export default function createMemoryApi(
             designation: employee.designation,
             projectName: employee.projectName,
             campName: employee.campName,
-            overtimePay: roundMoney(input.overtimeHours * input.overtimeRate),
+            overtimePay: overtimePay(input),
             netPay: netPay(input),
             status: 'unpaid',
             paidDate: '',
@@ -477,6 +490,56 @@ export default function createMemoryApi(
         if (payslip.status === 'paid') throw paidError(payslip);
         state.payslips = state.payslips.filter((item) => item.id !== id);
       },
+    },
+    documents: {
+      upload: async (rawInput, rawFiles) => {
+        const input = validateDocumentInput(rawInput);
+        const uploads = validateUploads(rawFiles);
+        if (uploads.length === 0) {
+          throw new AppError(
+            'VALIDATION',
+            'Choose at least one file to upload.',
+          );
+        }
+        if (input.employeeId) findEmployee(input.employeeId);
+        const saved = uploads.map((file) => {
+          const id = newId();
+          documentFiles.set(id, file);
+          return {
+            id,
+            ...input,
+            fileName: file.name,
+            mimeType: file.type,
+            sizeBytes: file.data.byteLength,
+            uploadedAt: Date.now(),
+          };
+        });
+        state.documents = [...saved, ...state.documents];
+        return clone(saved);
+      },
+      update: async (rawId, rawInput) => {
+        const id = recordId(rawId);
+        const input = validateDocumentInput(rawInput);
+        const previous = state.documents.find((item) => item.id === id);
+        if (!previous) {
+          throw new AppError('NOT_FOUND', 'That document no longer exists.');
+        }
+        const document = { ...previous, ...input };
+        state.documents = state.documents.map((item) =>
+          item.id === id ? document : item,
+        );
+        return clone(document);
+      },
+      remove: async (rawId) => {
+        const id = recordId(rawId);
+        if (!state.documents.some((item) => item.id === id)) {
+          throw new AppError('NOT_FOUND', 'That document no longer exists.');
+        }
+        documentFiles.delete(id);
+        state.documents = state.documents.filter((item) => item.id !== id);
+      },
+      open: async () => undefined,
+      saveAs: async (rawId) => `/documents/${recordId(rawId)}`,
     },
     payroll: {
       updateSettings: async (rawSettings) => {

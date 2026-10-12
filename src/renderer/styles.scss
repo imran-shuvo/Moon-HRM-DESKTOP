@@ -1109,3 +1109,95 @@ th.sheet-total.status-vacation, th.sheet-total.status-holiday { color: var(--sta
 @media (max-width: 760px) {
   .payroll-totals, .payslip-view, .target-select { grid-template-columns: 1fr; }
 }
+
+/* ───────────── Documents ───────────── */
+.documents-panel { padding: 0; overflow: hidden; }
+.documents-layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 520px; }
+.folder-list { display: flex; flex-direction: column; gap: 3px; border-right: 1px solid #ecebf2; padding: 18px 12px; background: #fafafd; }
+.folder-list h3 { margin: 0 8px 8px; color: #8d8e9b; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.folder { display: flex; align-items: center; gap: 9px; border: 0; border-radius: 9px; padding: 9px 10px; color: #3a3b48; background: transparent; font-size: 12.5px; font-weight: 550; text-align: left; }
+.folder > span { font-size: 15px; }
+.folder small { margin-left: auto; border-radius: 999px; padding: 1px 8px; color: #7f808d; background: #ececf2; font-size: 10.5px; font-weight: 700; }
+.folder:hover { background: #f0eef9; }
+.folder.active { color: #3f3594; background: #ebe7fc; font-weight: 700; }
+.folder.active small { color: #fff; background: #7164d9; }
+.folder-empty { margin: 8px; color: #9596a3; font-size: 11.5px; line-height: 1.5; }
+.documents-main { min-width: 0; padding: 18px 20px; }
+.documents-main .filter-bar { margin: 0 0 14px; }
+.document-day { margin-bottom: 14px; }
+.document-day h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; color: #2b2c3a; font-size: 13px; font-weight: 700; }
+.document-day h3 span { color: #8d8e9b; font-size: 11.5px; font-weight: 500; }
+.document-list { margin: 0; overflow: hidden; border: 1px solid #ecebf2; border-radius: 12px; padding: 0; list-style: none; }
+.document-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; border-bottom: 1px solid #f1f1f5; padding: 10px 14px; }
+.document-row:last-child { border-bottom: 0; }
+.document-row:hover { background: #fbfbfe; }
+.file-kind { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 9px; color: #6b6c79; background: #f1f1f5; font-size: 10px; font-weight: 800; }
+.kind-pdf { color: #c43d48; background: #fde8ea; }
+.kind-img { color: #2f6fc4; background: #e6f0fd; }
+.kind-xls { color: #23865c; background: #e3f5ec; }
+.kind-doc { color: #3f5fc4; background: #e8edfd; }
+.document-info { display: grid; gap: 3px; min-width: 0; }
+.document-title { overflow: hidden; border: 0; padding: 0; color: #22232f; background: transparent; font-size: 13px; font-weight: 600; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.document-title:hover { color: #7164d9; text-decoration: underline; }
+.document-info > span { overflow: hidden; color: #8d8e9b; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.document-dialog { width: min(100%, 640px); max-height: calc(100vh - 32px); overflow-y: auto; }
+.drop-zone { display: grid; width: 100%; justify-items: center; gap: 5px; margin-bottom: 12px; border: 2px dashed #d3cdf3; border-radius: 12px; padding: 22px; color: #4c4296; background: #faf9ff; text-align: center; transition: background .15s, border-color .15s; }
+.drop-zone > span { font-size: 24px; }
+.drop-zone strong { font-size: 13px; }
+.drop-zone small { color: #8d8e9b; font-size: 11px; }
+.drop-zone:hover, .drop-zone.dragging { border-color: #7164d9; background: #f0edff; }
+.upload-list { display: grid; max-height: 180px; gap: 2px; margin: 0 0 12px; overflow-y: auto; border: 1px solid #ecebf2; border-radius: 10px; padding: 6px; list-style: none; }
+.upload-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; border-radius: 6px; padding: 5px 8px; font-size: 12px; }
+.upload-list li:nth-child(odd) { background: #fafafd; }
+.upload-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-list small { color: #8d8e9b; }
+.document-fields { margin: 0; border: 0; padding: 0; }
+.day-documents { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; border: 1px solid #e3e1f3; border-radius: 12px; padding: 10px 12px; background: #fbfaff; }
+.day-documents-label { color: #4c4296; font-size: 12.5px; font-weight: 650; }
+.day-document { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; overflow: hidden; border: 1px solid #e3e2ea; border-radius: 999px; padding: 4px 10px 4px 4px; color: #3a3b48; background: #fff; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.day-document b { border-radius: 999px; padding: 2px 6px; color: #c43d48; background: #fde8ea; font-size: 9px; }
+.day-document:hover { border-color: #b9b1ee; }
+.day-documents-none { color: #9596a3; font-size: 11.5px; }
+.day-documents .button { margin-left: auto; }
+.terminated-pill { margin-left: 8px; }
+.status-ended { --status: #b0b1bc; --status-bg: #f4f4f6; --status-line: #e6e6ec; }
+.sheet-cell.status-ended, .calendar-day.status-ended { color: #b0b1bc; background: repeating-linear-gradient(45deg, #f6f6f8 0 3px, #eeeef2 3px 6px); }
+.moon-report .status-ended { color: #aaa; background: #f0f0f0; }
+@media (max-width: 900px) {
+  .documents-layout { grid-template-columns: 1fr; }
+  .folder-list { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid #ecebf2; }
+  .folder-list h3 { width: 100%; }
+  .document-row { grid-template-columns: auto minmax(0, 1fr); }
+}
+
+/* ───────────── Terms & policy ───────────── */
+.policy-panel { margin-top: 16px; }
+.policy-sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.policy-section { border: 1px solid #ecebf2; border-radius: 12px; padding: 14px 16px; background: #fff; }
+.policy-section h3 { display: flex; align-items: center; gap: 9px; margin: 0 0 8px; color: #22232f; font-size: 13.5px; font-weight: 700; }
+.policy-section h3 span { display: grid; flex: none; width: 22px; height: 22px; place-items: center; border-radius: 50%; color: #fff; background: #7164d9; font-size: 11px; }
+.policy-section ul { display: grid; gap: 6px; margin: 0; padding-left: 18px; color: #3a3b48; font-size: 12.5px; line-height: 1.55; }
+.policy-report .moon-report-section { margin-top: 18px; break-inside: avoid; }
+.policy-report ul { margin: 6px 0 0; padding-left: 18px; }
+.policy-report li { margin-bottom: 4px; font-size: 10pt; line-height: 1.45; }
+
+/* ───────────── Pay calculation (employee report) ───────────── */
+.pay-calculation { display: grid; gap: 10px; margin-top: 4px; border: 1px solid #e3e1f3; border-radius: 12px; padding: 16px; background: #fcfbff; }
+.pay-calculation-heading h3 { margin: 0 0 4px; color: #22232f; font-size: 15px; font-weight: 700; }
+.pay-calculation-heading p { margin: 0; color: #7d7e8c; font-size: 12px; }
+.calc-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.calc-table th { border-bottom: 1px solid #e6e4f2; padding: 8px 10px; color: #8d8e9b; font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-align: left; }
+.calc-table td { border-bottom: 1px dashed #ecebf2; padding: 9px 10px; color: #3a3b48; font-size: 12.5px; line-height: 1.45; vertical-align: top; }
+.calc-table td:first-child { width: 22%; color: #22232f; font-weight: 600; }
+.calc-table td:nth-child(2) { color: #5d5e6c; }
+.calc-table .amount { width: 16%; text-align: right; white-space: nowrap; font-weight: 600; }
+.calc-table tr.calc-note td { color: #8d8e9b; font-style: italic; }
+.calc-table tr.calc-note td:first-child { color: #6b6c79; font-style: normal; }
+.calc-table tfoot td { border-bottom: 0; border-top: 1px solid #e6e4f2; padding-top: 10px; font-weight: 700; }
+.calc-table tfoot tr.calc-net td { border-top: 2px solid #7164d9; color: #3f3594; font-size: 15px; }
+.pay-calculation .notice { margin: 0; }
+.moon-calc-table td:first-child { width: 22%; font-weight: 700; }
+.moon-calc-table td { font-size: 9pt; vertical-align: top; }
+.moon-calc-table tr.calc-note td { color: var(--moon-muted); font-style: italic; }
+.moon-calc-table tfoot tr.calc-net td { font-size: 11pt; }
+.pay-calculation-print { break-inside: avoid; }

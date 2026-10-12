@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { formatMonthName } from '../../../shared/months';
 import {
   calculatePayslip,
+  isEmployedInMonth,
   netPay,
   outstandingAdvance,
   payBasis,
@@ -71,8 +72,10 @@ export default function CreatePayslipsDialog({
   const chosen = isTargetChosen(target);
   const plan = useMemo(() => {
     if (!attendance || !chosen) return undefined;
-    const people = employees.filter((employee) =>
-      matchesTarget(employee, target),
+    // People who left before the month started get no payslip for it.
+    const people = employees.filter(
+      (employee) =>
+        isEmployedInMonth(employee, month) && matchesTarget(employee, target),
     );
     const existing = people.filter((employee) =>
       payslips.some(

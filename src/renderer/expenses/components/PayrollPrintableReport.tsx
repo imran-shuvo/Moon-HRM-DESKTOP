@@ -15,6 +15,13 @@ import {
 import { formatHours } from './AttendancePrintableReport';
 import ReportBrandHeader from './ReportBrandHeader';
 
+/** A per-hour rate, e.g. 10.8333. */
+const formatRate = (value: number) =>
+  new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(value);
+
 function Amount({ value }: { value: number }) {
   return <td className="amount">{formatReportAmount(value)}</td>;
 }
@@ -34,14 +41,18 @@ function PayslipSheet({ payslip }: { payslip: Payslip }) {
       payslip.basicPay,
     ],
     [
-      `Overtime (${formatHours(payslip.overtimeHours)} h × ${formatReportAmount(payslip.overtimeRate)})`,
-      payslip.overtimePay,
+      `Overtime, working days (${formatHours(payslip.overtimeHours)} h × ${formatRate(payslip.overtimeRate)})`,
+      roundMoney(payslip.overtimeHours * payslip.overtimeRate),
+    ],
+    [
+      `Overtime, Fridays (${formatHours(payslip.weekendOvertimeHours)} h × ${formatRate(payslip.weekendOvertimeRate)})`,
+      roundMoney(payslip.weekendOvertimeHours * payslip.weekendOvertimeRate),
     ],
     ['Allowance / other pay', payslip.allowance],
   ];
   const deductions: [string, number][] = [
-    ['Absence / leave deduction', payslip.absenceDeduction],
-    ['Absence fine', payslip.absenceFine],
+    ['Unpaid vacation', payslip.absenceDeduction],
+    ['Unpaid leave', payslip.absenceFine],
     ['Advance deduction', payslip.advanceDeduction],
     ['Other deduction', payslip.otherDeduction],
   ];

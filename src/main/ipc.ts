@@ -27,6 +27,7 @@ import {
   validateSalaryAdvanceInputs,
   validateBudgetTransactionInput,
   validateConnectionSettings,
+  validateDocumentInput,
   validateEmployeeInput,
   validateExpenseInput,
   validateLegacyPayload,
@@ -100,6 +101,16 @@ const EXECUTABLE_EXTENSIONS = new Set(
   ].map((extension) => `.${extension}`),
 );
 
+/** A stored file name without path separators or control characters. */
+function safeFileName(name: string) {
+  return (
+    path
+      .basename(name)
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x1f<>:"/\\|?*]/g, '_') || 'file'
+  );
+}
+
 const BACKUP_FILTERS = [
   { name: 'Moon Finance backup', extensions: [BACKUP_EXTENSION.slice(1)] },
 ];
@@ -162,29 +173,69 @@ export default function registerIpcHandlers({
     repository.getAttachment(db(), recordId(id)),
   );
 
-  handle(IPC.expenseOpenAttachment, async (id: unknown) => {
-    const attachmentId = recordId(id);
-    const attachment = await repository.getAttachment(db(), attachmentId);
-    if (!attachment) {
-      throw new AppError('NOT_FOUND', 'That file no longer exists.');
-    }
-    const directory = path.join(app.getPath('temp'), 'moon-finance-receipts');
+  /** Writes a stored file to a temporary folder and opens it safely. */
+  async function openStoredFile(
+    id: string,
+    file: { name: string; data: Uint8Array },
+  ) {
+    const directory = path.join(app.getPath('temp'), 'moon-finance-files');
     await fs.mkdir(directory, { recursive: true });
-    // Strip path separators and control characters from the stored name.
-    const safeName = path
-      .basename(attachment.name)
-      // eslint-disable-next-line no-control-regex
-      .replace(/[\x00-\x1f<>:"/\\|?*]/g, '_');
-    const filePath = path.join(directory, `${attachmentId}-${safeName}`);
-    await fs.writeFile(filePath, attachment.data);
-    // Attachments come from a shared database: never launch a program.
-    if (EXECUTABLE_EXTENSIONS.has(path.extname(safeName).toLowerCase())) {
+    const filePath = path.join(directory, `${id}-${safeFileName(file.name)}`);
+    await fs.writeFile(filePath, file.data);
+    // Files come from a shared database: never launch a program.
+    if (EXECUTABLE_EXTENSIONS.has(path.extname(filePath).toLowerCase())) {
       shell.showItemInFolder(filePath);
       return;
     }
     const error = await shell.openPath(filePath);
     if (error)
       throw new AppError('NOT_FOUND', `The file could not be opened: ${error}`);
+  }
+
+  handle(IPC.expenseOpenAttachment, async (id: unknown) => {
+    const attachmentId = recordId(id);
+    const attachment = await repository.getAttachment(db(), attachmentId);
+    if (!attachment) {
+      throw new AppError('NOT_FOUND', 'That file no longer exists.');
+    }
+    await openStoredFile(attachmentId, attachment);
+  });
+
+  handle(IPC.documentUpload, (input: unknown, files: unknown) =>
+    repository.uploadDocuments(
+      db(),
+      validateDocumentInput(input),
+      validateUploads(files),
+    ),
+  );
+  handle(IPC.documentUpdate, (id: unknown, input: unknown) =>
+    repository.updateDocument(db(), recordId(id), validateDocumentInput(input)),
+  );
+  handle(IPC.documentDelete, (id: unknown) =>
+    repository.deleteDocument(db(), recordId(id)),
+  );
+  handle(IPC.documentOpen, async (id: unknown) => {
+    const documentId = recordId(id);
+    const file = await repository.getDocumentFile(db(), documentId);
+    if (!file)
+      throw new AppError('NOT_FOUND', 'That document no longer exists.');
+    await openStoredFile(documentId, file);
+  });
+  handle(IPC.documentSaveAs, async (id: unknown) => {
+    const file = await repository.getDocumentFile(db(), recordId(id));
+    if (!file)
+      throw new AppError('NOT_FOUND', 'That document no longer exists.');
+    const window = getWindow();
+    const options: SaveDialogOptions = {
+      title: 'Save a copy of the document',
+      defaultPath: path.join(app.getPath('documents'), safeFileName(file.name)),
+    };
+    const result = window
+      ? await dialog.showSaveDialog(window, options)
+      : await dialog.showSaveDialog(options);
+    if (result.canceled || !result.filePath) return undefined;
+    await fs.writeFile(result.filePath, file.data);
+    return result.filePath;
   });
 
   handle(IPC.budgetCreate, (input: unknown) =>

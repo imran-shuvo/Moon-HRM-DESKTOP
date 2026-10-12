@@ -1,34 +1,38 @@
 import { FormEvent, useState } from 'react';
-import { overtimeRate } from '../../../shared/payroll';
+import { hourlySalary } from '../../../shared/payroll';
 import { errorMessage, useFinanceApi } from '../../data/FinanceApiContext';
-import { PayrollSettings, formatReportAmount } from '../model';
+import { PayrollSettings, formatAmount } from '../model';
 
-type NumberKey = Exclude<keyof PayrollSettings, 'leavePaid' | 'vacationPaid'>;
+type NumberKey =
+  | 'overtimeMultiplier'
+  | 'weekendOvertimeMultiplier'
+  | 'salaryDays'
+  | 'paidDaysOff';
 
 const FIELDS: { key: NumberKey; label: string; hint: string; step: number }[] =
   [
     {
-      key: 'overtimeBaseRate',
-      label: 'Overtime base rate (SAR / hour)',
-      hint: 'Multiplied by the multiplier below',
-      step: 0.01,
-    },
-    {
       key: 'overtimeMultiplier',
-      label: 'Overtime multiplier',
-      hint: 'e.g. 1.5',
+      label: 'Overtime on working days (× per-hour salary)',
+      hint: 'Hours beyond the basic hours; policy 1.25',
       step: 0.01,
     },
     {
-      key: 'absenceFine',
-      label: 'Fine per absent day (SAR)',
-      hint: 'Company and camp workers',
+      key: 'weekendOvertimeMultiplier',
+      label: 'Overtime on Fridays (× per-hour salary)',
+      hint: 'Every hour worked on a Friday; policy 1.50',
       step: 0.01,
     },
     {
-      key: 'absenceFineFreeDays',
-      label: 'Absent days without a fine',
-      hint: 'Fines start after these days',
+      key: 'salaryDays',
+      label: 'Days in a salary month',
+      hint: "Per-hour salary = basic ÷ this ÷ basic hours; a day's salary = basic ÷ this; policy 30",
+      step: 1,
+    },
+    {
+      key: 'paidDaysOff',
+      label: 'Paid days off a month',
+      hint: 'Absent and leave days count together; days beyond this are unpaid leave; policy 1',
       step: 1,
     },
   ];
@@ -40,13 +44,13 @@ const TOGGLES: {
 }[] = [
   {
     key: 'leavePaid',
-    label: 'Leave days are paid',
-    hint: 'When off, a day’s pay is deducted for each leave day.',
+    label: 'Leave days are always paid',
+    hint: 'When off, leave days count like absent days.',
   },
   {
     key: 'vacationPaid',
     label: 'Vacation days are paid',
-    hint: 'When off, a day’s pay is deducted for each vacation day.',
+    hint: "When off, a day's salary is deducted for each vacation day.",
   },
 ];
 
@@ -58,9 +62,12 @@ export default function PayrollSettingsPanel({
   onSaved: (settings: PayrollSettings) => void;
 }) {
   const api = useFinanceApi();
-  const [form, setForm] = useState(() =>
-    Object.fromEntries(FIELDS.map(({ key }) => [key, String(settings[key])])),
-  );
+  const [form, setForm] = useState<Record<NumberKey, string>>(() => ({
+    overtimeMultiplier: String(settings.overtimeMultiplier),
+    weekendOvertimeMultiplier: String(settings.weekendOvertimeMultiplier),
+    salaryDays: String(settings.salaryDays),
+    paidDaysOff: String(settings.paidDaysOff),
+  }));
   const [flags, setFlags] = useState({
     leavePaid: settings.leavePaid,
     vacationPaid: settings.vacationPaid,
@@ -74,17 +81,26 @@ export default function PayrollSettingsPanel({
     FIELDS.map(({ key }) => [key, Number(form[key])]),
   ) as Record<NumberKey, number>;
   const values: PayrollSettings = { ...numbers, ...flags };
-  const valid = FIELDS.every(
-    ({ key }) =>
-      form[key].trim() !== '' &&
-      Number.isFinite(numbers[key]) &&
-      numbers[key] >= 0,
-  );
+  const valid =
+    FIELDS.every(
+      ({ key }) =>
+        form[key].trim() !== '' &&
+        Number.isFinite(numbers[key]) &&
+        numbers[key] >= 0,
+    ) &&
+    numbers.salaryDays >= 1 &&
+    numbers.salaryDays <= 31 &&
+    Number.isInteger(numbers.paidDaysOff);
+  // Example worker for the summary: 2,600 basic, 10 hours a day.
+  const perHour = hourlySalary({ salary: 2600, workHoursPerDay: 10 }, values);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!valid) {
-      setStatus({ kind: 'error', text: 'Every setting must be zero or more.' });
+      setStatus({
+        kind: 'error',
+        text: 'Check the values: days in a month must be 1–31 and paid days off a whole number.',
+      });
       return;
     }
     setSaving(true);
@@ -93,7 +109,7 @@ export default function PayrollSettingsPanel({
       onSaved(await api.payroll.updateSettings(values));
       setStatus({
         kind: 'ok',
-        text: 'Payroll settings saved. They apply to payslips generated or recalculated from now on.',
+        text: 'Payroll settings saved. They apply to payslips created or recalculated from now on.',
       });
     } catch (error) {
       setStatus({
@@ -111,8 +127,9 @@ export default function PayrollSettingsPanel({
         <div>
           <h2>Payroll settings</h2>
           <p>
-            Defaults for new payslips. Saved payslips keep their amounts, and
-            every amount can still be edited on a payslip.
+            For company workers and outsource camp workers. Saved payslips keep
+            their amounts, and every amount can still be edited on a payslip.
+            Settings → Terms &amp; policy explains every rule in full.
           </p>
         </div>
       </div>
@@ -126,7 +143,7 @@ export default function PayrollSettingsPanel({
             {label}
             <input
               id={`payroll-${key}`}
-              min={0}
+              min={key === 'salaryDays' ? 1 : 0}
               onChange={(event) => {
                 const { value } = event.currentTarget;
                 setForm((current) => ({ ...current, [key]: value }));
@@ -162,8 +179,8 @@ export default function PayrollSettingsPanel({
       </div>
       <p className="notice">
         {valid
-          ? `Overtime pays ${formatReportAmount(overtimeRate(values))} SAR an hour. Absent days beyond ${numbers.absenceFineFreeDays} are fined ${formatReportAmount(numbers.absenceFine)} SAR each. Leave is ${flags.leavePaid ? 'paid' : 'unpaid'}; vacation is ${flags.vacationPaid ? 'paid' : 'unpaid'}.`
-          : 'Enter a value of zero or more in each field.'}
+          ? `Example — basic 2,600, 10 hours a day: per-hour salary 2,600 ÷ ${numbers.salaryDays} ÷ 10 = ${formatAmount(perHour)}; overtime ${formatAmount(perHour * numbers.overtimeMultiplier)} an hour on working days and ${formatAmount(perHour * numbers.weekendOvertimeMultiplier)} on Fridays; each unpaid day off deducts ${formatAmount(2600 / numbers.salaryDays)}.`
+          : 'Enter valid values in each field.'}
       </p>
       {status && (
         <p

@@ -6,6 +6,8 @@ import {
   AttendanceEntry,
   BudgetTransaction,
   BudgetTransactionInput,
+  DocumentInput,
+  DocumentRecord,
   Employee,
   EmployeeInput,
   Expense,
@@ -76,6 +78,7 @@ type EmployeeRow = {
   camp_name: string;
   work_hours_per_day: number;
   hourly_rate: number | null;
+  termination_date: string | null;
 };
 
 type AttendanceRow = {
@@ -117,6 +120,8 @@ type PayslipRow = {
   basic_pay: number;
   overtime_hours: number;
   overtime_rate: number;
+  weekend_overtime_hours: number;
+  weekend_overtime_rate: number;
   allowance: number;
   absence_deduction: number;
   absence_fine: number;
@@ -130,10 +135,10 @@ type PayslipRow = {
 };
 
 type PayrollSettingsRow = {
-  overtime_base_rate: number;
   overtime_multiplier: number;
-  absence_fine: number;
-  absence_fine_free_days: number;
+  weekend_overtime_multiplier: number;
+  salary_days: number;
+  paid_days_off: number;
   leave_paid: boolean;
   vacation_paid: boolean;
 };
@@ -153,9 +158,45 @@ const RECEIPT_COLUMNS =
 const EMPLOYEE_COLUMNS = `
   id, name, nickname, role, iqama_no, designation, project_name, phone_no,
   insurance_no, salary, iqama_expiry, camp_name, work_hours_per_day,
-  hourly_rate`;
+  hourly_rate, termination_date`;
 
 const ATTENDANCE_COLUMNS = 'employee_id, work_date, status, hours, note';
+
+const DOCUMENT_COLUMNS = `
+  id, title, category, project_name, camp_name, document_date, employee_id,
+  note, file_name, mime_type, size_bytes, created_at`;
+
+type DocumentRow = {
+  id: string;
+  title: string;
+  category: string;
+  project_name: string;
+  camp_name: string;
+  document_date: string;
+  employee_id: string | null;
+  note: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  created_at: Date;
+};
+
+function toDocument(row: DocumentRow): DocumentRecord {
+  return {
+    id: row.id,
+    title: row.title,
+    category: row.category,
+    projectName: row.project_name,
+    campName: row.camp_name,
+    documentDate: row.document_date,
+    employeeId: row.employee_id ?? '',
+    note: row.note,
+    fileName: row.file_name,
+    mimeType: row.mime_type,
+    sizeBytes: row.size_bytes,
+    uploadedAt: row.created_at.getTime(),
+  };
+}
 
 const ADVANCE_COLUMNS =
   'id, employee_id, advance_date, amount, note, created_at';
@@ -166,10 +207,12 @@ const PAYSLIP_COLUMNS = `
   leave_days, holiday_days, hours_worked, basic_salary, hourly_rate,
   basic_pay, overtime_hours, overtime_rate, allowance, absence_deduction,
   absence_fine, advance_deduction, other_deduction, overtime_pay, net_pay,
-  status, paid_date, note, vacation_days`;
+  status, paid_date, note, vacation_days, weekend_overtime_hours,
+  weekend_overtime_rate`;
 
-const PAYROLL_SETTINGS_COLUMNS = `overtime_base_rate, overtime_multiplier, absence_fine,
-   absence_fine_free_days, leave_paid, vacation_paid`;
+const PAYROLL_SETTINGS_COLUMNS = `overtime_multiplier,
+   weekend_overtime_multiplier, salary_days, paid_days_off, leave_paid,
+   vacation_paid`;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -235,6 +278,7 @@ function toEmployee(row: EmployeeRow): Employee {
     campName: row.camp_name,
     workHoursPerDay: row.work_hours_per_day,
     hourlyRate: row.hourly_rate,
+    terminationDate: row.termination_date ?? '',
   };
 }
 
@@ -282,6 +326,8 @@ function toPayslip(row: PayslipRow): Payslip {
     basicPay: row.basic_pay,
     overtimeHours: row.overtime_hours,
     overtimeRate: row.overtime_rate,
+    weekendOvertimeHours: row.weekend_overtime_hours,
+    weekendOvertimeRate: row.weekend_overtime_rate,
     allowance: row.allowance,
     absenceDeduction: row.absence_deduction,
     absenceFine: row.absence_fine,
@@ -297,10 +343,10 @@ function toPayslip(row: PayslipRow): Payslip {
 
 function toPayrollSettings(row: PayrollSettingsRow): PayrollSettings {
   return {
-    overtimeBaseRate: row.overtime_base_rate,
     overtimeMultiplier: row.overtime_multiplier,
-    absenceFine: row.absence_fine,
-    absenceFineFreeDays: row.absence_fine_free_days,
+    weekendOvertimeMultiplier: row.weekend_overtime_multiplier,
+    salaryDays: row.salary_days,
+    paidDaysOff: row.paid_days_off,
     leavePaid: row.leave_paid,
     vacationPaid: row.vacation_paid,
   };
@@ -505,6 +551,10 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
          ORDER BY month DESC, lower(employee_name), iqama_no`,
       );
       const payrollSettings = await readPayrollSettings(client);
+      const documents = await client.query<DocumentRow>(
+        `SELECT ${DOCUMENT_COLUMNS} FROM documents
+         ORDER BY document_date DESC, created_at DESC`,
+      );
       const attachmentsByExpense = new Map<string, ExpenseAttachment[]>();
       attachments.rows.forEach((row) => {
         const list = attachmentsByExpense.get(row.expense_id) ?? [];
@@ -523,6 +573,7 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
         salaryAdvances: advances.rows.map(toAdvance),
         payslips: payslips.rows.map(toPayslip),
         payrollSettings,
+        documents: documents.rows.map(toDocument),
       };
     },
     { isolation: 'REPEATABLE READ' },
@@ -679,6 +730,7 @@ function employeeParams(input: EmployeeInput) {
     input.role,
     input.workHoursPerDay,
     input.hourlyRate,
+    input.terminationDate || null,
   ];
 }
 
@@ -711,8 +763,8 @@ export function createEmployee(
       `INSERT INTO employees
          (name, iqama_no, designation, project_name, phone_no, insurance_no,
           iqama_expiry, camp_name, nickname, salary, role,
-          work_hours_per_day, hourly_rate)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          work_hours_per_day, hourly_rate, termination_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING ${EMPLOYEE_COLUMNS}`,
       employeeParams(input),
     );
@@ -744,7 +796,7 @@ export function updateEmployee(
          name = $2, iqama_no = $3, designation = $4, project_name = $5,
          phone_no = $6, insurance_no = $7, iqama_expiry = $8, camp_name = $9,
          nickname = $10, salary = $11, role = $12, work_hours_per_day = $13,
-         hourly_rate = $14, updated_at = now()
+         hourly_rate = $14, termination_date = $15, updated_at = now()
        WHERE id = $1
        RETURNING ${EMPLOYEE_COLUMNS}`,
       [id, ...employeeParams(input)],
@@ -807,23 +859,23 @@ export async function updatePayrollSettings(
 ): Promise<PayrollSettings> {
   const { rows } = await db.query<PayrollSettingsRow>(
     `INSERT INTO payroll_settings
-       (id, overtime_base_rate, overtime_multiplier, absence_fine,
-        absence_fine_free_days, leave_paid, vacation_paid)
+       (id, overtime_multiplier, weekend_overtime_multiplier, salary_days,
+        paid_days_off, leave_paid, vacation_paid)
      VALUES (1, $1, $2, $3, $4, $5, $6)
      ON CONFLICT (id) DO UPDATE SET
-       overtime_base_rate = EXCLUDED.overtime_base_rate,
        overtime_multiplier = EXCLUDED.overtime_multiplier,
-       absence_fine = EXCLUDED.absence_fine,
-       absence_fine_free_days = EXCLUDED.absence_fine_free_days,
+       weekend_overtime_multiplier = EXCLUDED.weekend_overtime_multiplier,
+       salary_days = EXCLUDED.salary_days,
+       paid_days_off = EXCLUDED.paid_days_off,
        leave_paid = EXCLUDED.leave_paid,
        vacation_paid = EXCLUDED.vacation_paid,
        updated_at = now()
      RETURNING ${PAYROLL_SETTINGS_COLUMNS}`,
     [
-      settings.overtimeBaseRate,
       settings.overtimeMultiplier,
-      settings.absenceFine,
-      settings.absenceFineFreeDays,
+      settings.weekendOvertimeMultiplier,
+      settings.salaryDays,
+      settings.paidDaysOff,
       settings.leavePaid,
       settings.vacationPaid,
     ],
@@ -840,6 +892,7 @@ type EmployeeLookup = Pick<
   | 'designation'
   | 'project_name'
   | 'camp_name'
+  | 'termination_date'
 >;
 
 /** Locks and returns the employees, or refuses if any no longer exists. */
@@ -850,7 +903,8 @@ async function lockEmployees(
   ids.forEach(assertUuid);
   const unique = [...new Set(ids)];
   const { rows } = await client.query<EmployeeLookup>(
-    `SELECT id, name, iqama_no, role, designation, project_name, camp_name
+    `SELECT id, name, iqama_no, role, designation, project_name, camp_name,
+            termination_date
      FROM employees WHERE id = ANY($1::uuid[]) FOR SHARE`,
     [unique],
   );
@@ -898,6 +952,20 @@ export function saveAttendanceDay(
       throw new AppError(
         'VALIDATION',
         `${staff.name} is staff, and staff have no attendance.`,
+      );
+    }
+    // A day can still be cleared after termination, but not recorded.
+    const ended = rows
+      .filter((row) => row.status !== null)
+      .map((row) => employees.get(row.employeeId) as EmployeeLookup)
+      .find(
+        (employee) =>
+          employee.termination_date && date > employee.termination_date,
+      );
+    if (ended) {
+      throw new AppError(
+        'VALIDATION',
+        `${ended.name}'s last working day was ${ended.termination_date}, so no attendance can be recorded after it.`,
       );
     }
     /* eslint-disable no-restricted-syntax, no-await-in-loop */
@@ -1041,9 +1109,11 @@ export function savePayslips(
             leave_days, holiday_days, hours_worked, basic_salary, hourly_rate,
             basic_pay, overtime_hours, overtime_rate, allowance,
             absence_deduction, absence_fine, advance_deduction,
-            other_deduction, note, vacation_days)
+            other_deduction, note, vacation_days, weekend_overtime_hours,
+            weekend_overtime_rate)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                 $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+                 $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
+                 $27, $28)
          ON CONFLICT (employee_id, month) DO UPDATE SET
            employee_name = EXCLUDED.employee_name,
            iqama_no = EXCLUDED.iqama_no, role = EXCLUDED.role,
@@ -1062,6 +1132,8 @@ export function savePayslips(
            basic_pay = EXCLUDED.basic_pay,
            overtime_hours = EXCLUDED.overtime_hours,
            overtime_rate = EXCLUDED.overtime_rate,
+           weekend_overtime_hours = EXCLUDED.weekend_overtime_hours,
+           weekend_overtime_rate = EXCLUDED.weekend_overtime_rate,
            allowance = EXCLUDED.allowance,
            absence_deduction = EXCLUDED.absence_deduction,
            absence_fine = EXCLUDED.absence_fine,
@@ -1096,6 +1168,8 @@ export function savePayslips(
           input.otherDeduction,
           input.note,
           input.vacationDays,
+          input.weekendOvertimeHours,
+          input.weekendOvertimeRate,
         ],
       );
       saved.push(toPayslip(rows[0]));
@@ -1152,6 +1226,108 @@ export function deletePayslip(db: Database, id: string): Promise<void> {
     }
     await client.query('DELETE FROM payslips WHERE id = $1', [id]);
   });
+}
+
+function documentParams(input: DocumentInput) {
+  return [
+    input.title,
+    input.category,
+    input.projectName,
+    input.campName,
+    input.documentDate,
+    input.employeeId || null,
+    input.note,
+  ];
+}
+
+/** Each file becomes its own document with the same details, in one transaction. */
+export function uploadDocuments(
+  db: Database,
+  input: DocumentInput,
+  files: AttachmentUpload[],
+): Promise<DocumentRecord[]> {
+  if (files.length === 0) {
+    throw new AppError('VALIDATION', 'Choose at least one file to upload.');
+  }
+  return db.transaction(async (client) => {
+    if (input.employeeId) await lockEmployees(client, [input.employeeId]);
+    const saved: DocumentRecord[] = [];
+    /* eslint-disable no-restricted-syntax, no-await-in-loop */
+    for (const file of files) {
+      const { rows } = await client.query<DocumentRow>(
+        `INSERT INTO documents
+           (title, category, project_name, camp_name, document_date,
+            employee_id, note, file_name, mime_type, size_bytes, content)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         RETURNING ${DOCUMENT_COLUMNS}`,
+        [
+          ...documentParams(input),
+          file.name,
+          file.type,
+          file.data.byteLength,
+          Buffer.from(
+            file.data.buffer,
+            file.data.byteOffset,
+            file.data.byteLength,
+          ),
+        ],
+      );
+      saved.push(toDocument(rows[0]));
+    }
+    /* eslint-enable no-restricted-syntax, no-await-in-loop */
+    return saved;
+  });
+}
+
+export function updateDocument(
+  db: Database,
+  id: string,
+  input: DocumentInput,
+): Promise<DocumentRecord> {
+  assertUuid(id);
+  return db.transaction(async (client) => {
+    if (input.employeeId) await lockEmployees(client, [input.employeeId]);
+    const { rows } = await client.query<DocumentRow>(
+      `UPDATE documents SET
+         title = $2, category = $3, project_name = $4, camp_name = $5,
+         document_date = $6, employee_id = $7, note = $8, updated_at = now()
+       WHERE id = $1
+       RETURNING ${DOCUMENT_COLUMNS}`,
+      [id, ...documentParams(input)],
+    );
+    if (!rows[0]) {
+      throw new AppError('NOT_FOUND', 'That document no longer exists.');
+    }
+    return toDocument(rows[0]);
+  });
+}
+
+export async function deleteDocument(db: Database, id: string): Promise<void> {
+  assertUuid(id);
+  const { rowCount } = await db.query('DELETE FROM documents WHERE id = $1', [
+    id,
+  ]);
+  if (!rowCount) {
+    throw new AppError('NOT_FOUND', 'That document no longer exists.');
+  }
+}
+
+export async function getDocumentFile(
+  db: Database,
+  id: string,
+): Promise<AttachmentContent | undefined> {
+  if (!UUID_PATTERN.test(id)) return undefined;
+  const { rows } = await db.query<{
+    file_name: string;
+    mime_type: string;
+    content: Buffer;
+  }>('SELECT file_name, mime_type, content FROM documents WHERE id = $1', [id]);
+  if (!rows[0]) return undefined;
+  return {
+    name: rows[0].file_name,
+    type: rows[0].mime_type,
+    data: new Uint8Array(rows[0].content),
+  };
 }
 
 export async function isDatabaseEmpty(client: Queryable): Promise<boolean> {

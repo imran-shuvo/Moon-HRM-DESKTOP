@@ -5,15 +5,10 @@ import {
   ExpenseAttachment,
   formatAmount,
   formatCurrency,
+  formatFileSize,
   getExpenseTotal,
 } from '../model';
 import { errorMessage, useFinanceApi } from '../../data/FinanceApiContext';
-
-function formatSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
 
 function AttachmentLink({ attachment }: { attachment: ExpenseAttachment }) {
   const api = useFinanceApi();
@@ -63,7 +58,7 @@ function AttachmentLink({ attachment }: { attachment: ExpenseAttachment }) {
       <button className="attachment-link" onClick={openFile} type="button">
         {previewUrl && <img alt="" src={previewUrl} />}
         <span>{attachment.name}</span>
-        <small>{formatSize(attachment.size)}</small>
+        <small>{formatFileSize(attachment.size)}</small>
       </button>
       {error && (
         <span className="attachment-error">

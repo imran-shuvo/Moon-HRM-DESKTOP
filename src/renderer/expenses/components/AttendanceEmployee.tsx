@@ -1,3 +1,4 @@
+import { ReactNode } from 'react';
 import {
   ATTENDANCE_STATUS_LABELS,
   datesInMonth,
@@ -19,7 +20,7 @@ import {
   formatHours,
   weekdayIndex,
 } from './AttendancePrintableReport';
-import { Avatar } from './peopleUi';
+import { Avatar, employeeOptionLabel } from './peopleUi';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -31,6 +32,7 @@ export default function AttendanceEmployee({
   entries,
   onSelect,
   onOpenDay,
+  payCalculation,
 }: {
   month: string;
   employees: Employee[];
@@ -38,6 +40,8 @@ export default function AttendanceEmployee({
   entries: AttendanceEntry[];
   onSelect: (id: string) => void;
   onOpenDay: (date: string) => void;
+  /** The month's pay worked out, shown under the calendar. */
+  payCalculation: ReactNode;
 }) {
   const dates = datesInMonth(month);
   const byKey = entriesByEmployeeDate(entries);
@@ -59,7 +63,7 @@ export default function AttendanceEmployee({
           </option>
           {employees.map((item) => (
             <option key={item.id} value={item.id}>
-              {item.name} · {item.iqamaNo}
+              {employeeOptionLabel(item)}
             </option>
           ))}
         </select>
@@ -103,7 +107,7 @@ export default function AttendanceEmployee({
               return (
                 <button
                   aria-label={`${formatReportDate(date)}: ${label}`}
-                  className={`calendar-day ${dayCellClass(entry, date)}${date === today ? ' today' : ''}`}
+                  className={`calendar-day ${dayCellClass(entry, date, employee)}${date === today ? ' today' : ''}`}
                   disabled={date > today}
                   key={date}
                   onClick={() => onOpenDay(date)}
@@ -123,6 +127,7 @@ export default function AttendanceEmployee({
               );
             })}
           </div>
+          {payCalculation}
         </>
       )}
     </div>

@@ -48,6 +48,12 @@ const FIELDS: {
     type: 'date',
   },
   { key: 'campName', label: 'Camp name', maxLength: 120 },
+  {
+    key: 'terminationDate',
+    label: 'Last working day (if terminated)',
+    maxLength: 10,
+    type: 'date',
+  },
 ];
 
 export default function EmployeeDialog({
@@ -103,6 +109,7 @@ export default function EmployeeDialog({
         insuranceNo: value('insuranceNo'),
         iqamaExpiry: value('iqamaExpiry'),
         campName: value('campName'),
+        terminationDate: value('terminationDate'),
       });
     } catch (submitError) {
       setError(

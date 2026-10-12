@@ -3,6 +3,7 @@ import {
   AttachmentUpload,
   BudgetTransactionInput,
   DatabaseStatus,
+  DocumentRecord,
   EmployeeInput,
   ExpenseInput,
   FinanceApi,
@@ -60,6 +61,8 @@ import ReportExportPanel, {
 import MonthClosingPanel from './expenses/components/MonthClosingPanel';
 import AttendancePanel from './expenses/components/AttendancePanel';
 import PayrollPanel from './expenses/components/PayrollPanel';
+import DocumentsPanel from './expenses/components/DocumentsPanel';
+import PayrollPolicyPanel from './expenses/components/PayrollPolicyPanel';
 import { PrintJob } from './expenses/components/printJob';
 import BackupPanel from './expenses/components/BackupPanel';
 import DatabaseConnectionForm from './expenses/components/DatabaseConnectionForm';
@@ -75,6 +78,7 @@ const EMPTY_SNAPSHOT: FinanceSnapshot = {
   salaryAdvances: [],
   payslips: [],
   payrollSettings: DEFAULT_PAYROLL_SETTINGS,
+  documents: [],
 };
 
 /** Reload from the database when the window regains focus, at most this often. */
@@ -173,6 +177,7 @@ const SECTION_EYEBROWS: Record<Section, string> = {
   Employees: 'PEOPLE',
   Attendance: 'PEOPLE',
   Payroll: 'PEOPLE',
+  Documents: 'PEOPLE',
   Settings: 'SYSTEM',
   Backup: 'SYSTEM',
 };
@@ -202,13 +207,18 @@ const TITLES: Record<Section, { title: string; subtitle: string }> = {
     title: 'Payroll',
     subtitle: 'Generate payslips by project, camp or role, and track advances.',
   },
+  Documents: {
+    title: 'Documents',
+    subtitle: 'Signature sheets and other files, filed by project and day.',
+  },
   Reports: {
     title: 'Reports',
     subtitle: 'Review spending by day, week, month, or year.',
   },
   Settings: {
     title: 'Settings',
-    subtitle: 'Export reports and reopen closed months for corrections.',
+    subtitle:
+      'Export reports, read the attendance and pay policy, and reopen closed months.',
   },
   Backup: {
     title: 'Backup & restore',
@@ -702,6 +712,13 @@ export default function App({ api }: { api: FinanceApi }) {
     [api, editingEmployee, closeEmployeeDialog],
   );
 
+  const saveDocuments = useCallback((saved: DocumentRecord[]) => {
+    setData((current) => ({
+      ...current,
+      documents: saved.reduce(upsert, current.documents),
+    }));
+  }, []);
+
   const requestDeleteEmployee = useCallback((employee: Employee) => {
     setEmployeeDialogOpen(false);
     setEditingEmployee(undefined);
@@ -1022,6 +1039,11 @@ export default function App({ api }: { api: FinanceApi }) {
             {section === 'Attendance' && (
               <AttendancePanel
                 employees={employees}
+                documents={data.documents}
+                onDocumentsSaved={saveDocuments}
+                payrollSettings={data.payrollSettings}
+                salaryAdvances={data.salaryAdvances}
+                payslips={data.payslips}
                 onPrint={setPrintJob}
                 onDirtyChange={setAttendanceDirty}
               />
@@ -1069,6 +1091,22 @@ export default function App({ api }: { api: FinanceApi }) {
               />
             )}
 
+            {section === 'Documents' && (
+              <DocumentsPanel
+                documents={data.documents}
+                employees={employees}
+                onSaved={saveDocuments}
+                onRemoved={(id) =>
+                  setData((current) => ({
+                    ...current,
+                    documents: current.documents.filter(
+                      (item) => item.id !== id,
+                    ),
+                  }))
+                }
+              />
+            )}
+
             {section === 'Reports' && (
               <ReportPanel
                 expenses={expenses}
@@ -1083,6 +1121,10 @@ export default function App({ api }: { api: FinanceApi }) {
                   expenses={expenses}
                   payments={budgetTransactions}
                   onExportPdf={preparePdfExport}
+                />
+                <PayrollPolicyPanel
+                  settings={data.payrollSettings}
+                  onPrint={setPrintJob}
                 />
                 <MonthClosingPanel
                   reopenedMonths={reopenedMonths}

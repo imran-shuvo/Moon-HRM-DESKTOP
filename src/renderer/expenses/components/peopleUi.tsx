@@ -358,6 +358,20 @@ export function GroupBySelect({
   );
 }
 
+/** e.g. "Karim Uddin · Company worker · 2400100001" for employee pickers. */
+export function employeeOptionLabel(
+  employee: Pick<Employee, 'name' | 'role' | 'iqamaNo' | 'terminationDate'>,
+) {
+  return [
+    employee.name,
+    EMPLOYEE_ROLE_LABELS[employee.role],
+    employee.iqamaNo,
+    employee.terminationDate ? 'terminated' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
 /* Choosing who a batch applies to */
 
 export type TargetKind = 'one' | 'all' | 'project' | 'camp' | 'role';
@@ -406,7 +420,7 @@ export function targetOptions(employees: Employee[], kind: TargetKind) {
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((employee) => ({
         value: employee.id,
-        label: `${employee.name} · ${employee.iqamaNo}`,
+        label: employeeOptionLabel(employee),
       }));
   }
   const values =

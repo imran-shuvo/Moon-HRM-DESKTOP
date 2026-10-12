@@ -101,7 +101,7 @@ export default function AttendanceMonthly({
                     const entry = byKey.get(`${employee.id}|${date}`);
                     return (
                       <td
-                        className={`sheet-cell ${dayCellClass(entry, date)}${date === today ? ' today' : ''}`}
+                        className={`sheet-cell ${dayCellClass(entry, date, employee)}${date === today ? ' today' : ''}`}
                         key={date}
                         title={entry?.note || undefined}
                       >

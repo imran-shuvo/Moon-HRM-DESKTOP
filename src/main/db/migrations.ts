@@ -200,7 +200,7 @@ export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
       -- Hours beyond work_hours_per_day are overtime. Outsource workers are
       -- paid hourly_rate per hour worked.
       ALTER TABLE employees
-        ADD COLUMN work_hours_per_day NUMERIC(4, 2) NOT NULL DEFAULT 8
+        ADD COLUMN work_hours_per_day NUMERIC(4, 2) NOT NULL DEFAULT 10
           CHECK (work_hours_per_day > 0 AND work_hours_per_day <= 24),
         ADD COLUMN hourly_rate NUMERIC(14, 2) CHECK (hourly_rate >= 0);
 
@@ -286,7 +286,7 @@ export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
         id                      SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
         overtime_base_rate      NUMERIC(14, 2) NOT NULL DEFAULT 20
                                 CHECK (overtime_base_rate >= 0),
-        overtime_multiplier     NUMERIC(6, 2) NOT NULL DEFAULT 1.5
+        overtime_multiplier     NUMERIC(6, 2) NOT NULL DEFAULT 1
                                 CHECK (overtime_multiplier >= 0),
         absence_fine            NUMERIC(14, 2) NOT NULL DEFAULT 20
                                 CHECK (absence_fine >= 0),
@@ -313,6 +313,96 @@ export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
       ALTER TABLE payroll_settings
         ADD COLUMN leave_paid BOOLEAN NOT NULL DEFAULT false,
         ADD COLUMN vacation_paid BOOLEAN NOT NULL DEFAULT true;
+    `,
+  },
+  {
+    version: 9,
+    name: 'company defaults, termination and documents',
+    sql: `
+      -- Databases that ran an earlier build of migration 7 got 8 basic hours
+      -- and an overtime multiplier of 1.5 as defaults. Move values nobody
+      -- has changed since then to the company defaults (10 hours, 20 an
+      -- hour); values someone saved later are kept.
+      ALTER TABLE employees ALTER COLUMN work_hours_per_day SET DEFAULT 10;
+      UPDATE employees SET work_hours_per_day = 10
+      WHERE work_hours_per_day = 8
+        AND updated_at <= (SELECT applied_at FROM schema_migrations
+                           WHERE version = 7);
+      ALTER TABLE payroll_settings ALTER COLUMN overtime_multiplier SET DEFAULT 1;
+      UPDATE payroll_settings SET overtime_multiplier = 1
+      WHERE overtime_multiplier = 1.5 AND overtime_base_rate = 20
+        AND updated_at <= (SELECT applied_at FROM schema_migrations
+                           WHERE version = 7);
+
+      -- Pay stops after a terminated employee's last working day.
+      ALTER TABLE employees ADD COLUMN termination_date DATE;
+
+      -- Files such as signature sheets, filed by day and project. Stored in
+      -- the database so every computer sees them and backups include them.
+      -- Deleting an employee keeps their documents.
+      CREATE TABLE documents (
+        id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        title          TEXT NOT NULL DEFAULT '',
+        category       TEXT NOT NULL CHECK (length(btrim(category)) BETWEEN 1 AND 60),
+        project_name   TEXT NOT NULL DEFAULT '',
+        camp_name      TEXT NOT NULL DEFAULT '',
+        document_date  DATE NOT NULL,
+        employee_id    UUID REFERENCES employees (id) ON DELETE SET NULL,
+        note           TEXT NOT NULL DEFAULT '',
+        file_name      TEXT NOT NULL,
+        mime_type      TEXT NOT NULL DEFAULT 'application/octet-stream',
+        size_bytes     INTEGER NOT NULL CHECK (size_bytes >= 0),
+        content        BYTEA NOT NULL,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX documents_date_idx ON documents (document_date);
+      CREATE INDEX documents_project_idx ON documents (project_name);
+    `,
+  },
+  {
+    version: 10,
+    name: 'company payroll policy',
+    sql: `
+      -- Overtime is now the per-hour salary (basic ÷ 30 ÷ basic hours) ×
+      -- 1.25 on working days and × 1.5 on Fridays, and an unpaid day off is
+      -- deducted a day's salary (basic ÷ 30). The flat overtime rate and the
+      -- flat absence deduction no longer apply. overtime_multiplier used to
+      -- multiply the flat rate, so it is set to the policy value.
+      ALTER TABLE payroll_settings
+        DROP COLUMN overtime_base_rate,
+        DROP COLUMN absence_fine,
+        ADD COLUMN weekend_overtime_multiplier NUMERIC(6, 2) NOT NULL DEFAULT 1.5
+          CHECK (weekend_overtime_multiplier >= 0),
+        ADD COLUMN salary_days NUMERIC(5, 2) NOT NULL DEFAULT 30
+          CHECK (salary_days > 0 AND salary_days <= 31);
+      ALTER TABLE payroll_settings
+        RENAME COLUMN absence_fine_free_days TO paid_days_off;
+      ALTER TABLE payroll_settings ALTER COLUMN overtime_multiplier SET DEFAULT 1.25;
+      UPDATE payroll_settings
+      SET overtime_multiplier = 1.25, weekend_overtime_multiplier = 1.5,
+          salary_days = 30, updated_at = now();
+
+      -- Payslips show Friday overtime separately. Rates keep 4 decimals
+      -- (e.g. 10.8333 an hour). Saved payslips keep their amounts: their
+      -- Friday overtime is 0 and their rates are unchanged.
+      ALTER TABLE payslips DROP COLUMN net_pay, DROP COLUMN overtime_pay;
+      ALTER TABLE payslips
+        ALTER COLUMN overtime_rate TYPE NUMERIC(14, 4),
+        ADD COLUMN weekend_overtime_hours NUMERIC(6, 2) NOT NULL DEFAULT 0
+          CHECK (weekend_overtime_hours >= 0),
+        ADD COLUMN weekend_overtime_rate NUMERIC(14, 4) NOT NULL DEFAULT 0
+          CHECK (weekend_overtime_rate >= 0);
+      ALTER TABLE payslips
+        ADD COLUMN overtime_pay NUMERIC(14, 2) GENERATED ALWAYS AS (
+          round(overtime_hours * overtime_rate, 2)
+          + round(weekend_overtime_hours * weekend_overtime_rate, 2)) STORED,
+        ADD COLUMN net_pay NUMERIC(14, 2) GENERATED ALWAYS AS (
+          basic_pay
+          + round(overtime_hours * overtime_rate, 2)
+          + round(weekend_overtime_hours * weekend_overtime_rate, 2)
+          + allowance - absence_deduction - absence_fine
+          - advance_deduction - other_deduction) STORED;
     `,
   },
 ];
