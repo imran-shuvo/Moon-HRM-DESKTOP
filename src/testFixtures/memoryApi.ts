@@ -24,6 +24,8 @@ import {
   validatePaidDate,
   validatePayrollSettings,
   validatePayslipInputs,
+  validatePettyCashInput,
+  validateAttachmentIds,
   validateSalaryAdvanceInput,
   validateSalaryAdvanceInputs,
   validateBudgetTransactionInput,
@@ -110,6 +112,7 @@ export default function createMemoryApi(
     payslips: [...(seed.payslips ?? [])],
     payrollSettings: { ...(seed.payrollSettings ?? DEFAULT_PAYROLL_SETTINGS) },
     documents: [...(seed.documents ?? [])],
+    pettyCash: [...(seed.pettyCash ?? [])],
   };
   const documentFiles = new Map<string, AttachmentUpload>();
   const findEmployee = (id: string) => {
@@ -316,6 +319,7 @@ export default function createMemoryApi(
           attendance: attendance.some((entry) => entry.employeeId === id),
           advances: state.salaryAdvances.some((item) => item.employeeId === id),
           payslips: state.payslips.some((item) => item.employeeId === id),
+          pettyCash: state.pettyCash.some((item) => item.employeeId === id),
         });
         state.employees = state.employees.filter((item) => item.id !== id);
       },
@@ -540,6 +544,59 @@ export default function createMemoryApi(
       },
       open: async () => undefined,
       saveAs: async (rawId) => `/documents/${recordId(rawId)}`,
+    },
+    pettyCash: {
+      create: async (rawInput, rawFiles) => {
+        const input = validatePettyCashInput(rawInput);
+        findEmployee(input.employeeId);
+        const entry = {
+          id: newId(),
+          ...input,
+          attachments: storeFiles(validateUploads(rawFiles)),
+          createdAt: Date.now(),
+        };
+        state.pettyCash = [entry, ...state.pettyCash];
+        return clone(entry);
+      },
+      update: async (rawId, rawInput, rawFiles, rawRemoveIds) => {
+        const id = recordId(rawId);
+        const input = validatePettyCashInput(rawInput);
+        const removeIds = validateAttachmentIds(rawRemoveIds);
+        findEmployee(input.employeeId);
+        const previous = state.pettyCash.find((item) => item.id === id);
+        if (!previous) {
+          throw new AppError(
+            'NOT_FOUND',
+            'That petty cash entry no longer exists.',
+          );
+        }
+        const kept = previous.attachments.filter(
+          (attachment) => !removeIds.includes(attachment.id),
+        );
+        removeIds.forEach((attachmentId) => files.delete(attachmentId));
+        const entry = {
+          ...previous,
+          ...input,
+          attachments: [...kept, ...storeFiles(validateUploads(rawFiles))],
+        };
+        state.pettyCash = state.pettyCash.map((item) =>
+          item.id === id ? entry : item,
+        );
+        return clone(entry);
+      },
+      remove: async (rawId) => {
+        const id = recordId(rawId);
+        const entry = state.pettyCash.find((item) => item.id === id);
+        if (!entry) {
+          throw new AppError(
+            'NOT_FOUND',
+            'That petty cash entry no longer exists.',
+          );
+        }
+        entry.attachments.forEach((attachment) => files.delete(attachment.id));
+        state.pettyCash = state.pettyCash.filter((item) => item.id !== id);
+      },
+      openAttachment: async () => undefined,
     },
     payroll: {
       updateSettings: async (rawSettings) => {

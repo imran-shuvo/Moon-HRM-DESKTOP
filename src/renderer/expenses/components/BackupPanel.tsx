@@ -98,6 +98,10 @@ function RestoreDialog({
             {plural(counts.payslips ?? 0, 'payslip')} ·{' '}
             {plural(counts.documents ?? 0, 'document')}
           </li>
+          <li>
+            {plural(counts.pettyCash ?? 0, 'petty cash record')} ·{' '}
+            {plural(counts.pettyCashAttachments ?? 0, 'petty cash file')}
+          </li>
         </ul>
         <p className="restore-warning">
           Every expense, budget payment, type, department, employee, attendance

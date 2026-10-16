@@ -70,6 +70,17 @@ export function readBackupData(db: Database): Promise<BackupData> {
                 created_at, updated_at
          FROM documents ORDER BY document_date, created_at, id`,
       );
+      const pettyCash = await client.query(
+        `SELECT id, employee_id, transaction_date, kind, amount, note,
+                created_at, updated_at, remarks
+         FROM petty_cash_transactions
+         ORDER BY transaction_date, created_at, id`,
+      );
+      const pettyCashAttachments = await client.query(
+        `SELECT id, transaction_id, file_name, mime_type, size_bytes, content,
+                created_at
+         FROM petty_cash_attachments ORDER BY created_at, id`,
+      );
       const settings = await client.query(
         `SELECT overtime_multiplier, weekend_overtime_multiplier,
                 salary_days, paid_days_off, leave_paid, vacation_paid
@@ -219,6 +230,26 @@ export function readBackupData(db: Database): Promise<BackupData> {
           createdAt: iso(row.created_at),
           updatedAt: iso(row.updated_at),
         })),
+        pettyCash: pettyCash.rows.map((row) => ({
+          id: row.id,
+          employeeId: row.employee_id,
+          transactionDate: row.transaction_date,
+          kind: row.kind,
+          amount: row.amount,
+          note: row.note,
+          createdAt: iso(row.created_at),
+          updatedAt: iso(row.updated_at),
+          remarks: row.remarks,
+        })),
+        pettyCashAttachments: pettyCashAttachments.rows.map((row) => ({
+          id: row.id,
+          transactionId: row.transaction_id,
+          fileName: row.file_name,
+          mimeType: row.mime_type,
+          sizeBytes: row.size_bytes,
+          contentBase64: (row.content as Buffer).toString('base64'),
+          createdAt: iso(row.created_at),
+        })),
       };
     },
     { isolation: 'REPEATABLE READ' },
@@ -262,7 +293,8 @@ export function restoreBackupData(
     await client.query(
       `TRUNCATE expense_attachments, expenses, budget_receipts, categories,
                 departments, attendance, salary_advances, payslips,
-                documents, employees`,
+                documents, petty_cash_attachments, petty_cash_transactions,
+                employees`,
     );
     const json = (rows: unknown[]) => JSON.stringify(rows);
     const lists = [
@@ -451,6 +483,38 @@ export function restoreBackupData(
           Buffer.from(document.contentBase64, 'base64'),
           document.createdAt,
           document.updatedAt,
+        ],
+      );
+    }
+    // Older backups have no petty cash.
+    await client.query(
+      `INSERT INTO petty_cash_transactions
+         (id, employee_id, transaction_date, kind, amount, note, created_at,
+          updated_at, remarks)
+       SELECT id, "employeeId", "transactionDate", kind, amount, note,
+              "createdAt", "updatedAt", coalesce(remarks, '')
+       FROM jsonb_to_recordset($1::jsonb) AS x(
+         id uuid, "employeeId" uuid, "transactionDate" date, kind text,
+         amount numeric, note text, "createdAt" timestamptz,
+         "updatedAt" timestamptz, remarks text)`,
+      [json(data.pettyCash ?? [])],
+    );
+    // eslint-disable-next-line no-restricted-syntax
+    for (const attachment of data.pettyCashAttachments ?? []) {
+      // eslint-disable-next-line no-await-in-loop
+      await client.query(
+        `INSERT INTO petty_cash_attachments
+           (id, transaction_id, file_name, mime_type, size_bytes, content,
+            created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          attachment.id,
+          attachment.transactionId,
+          attachment.fileName,
+          attachment.mimeType,
+          attachment.sizeBytes,
+          Buffer.from(attachment.contentBase64, 'base64'),
+          attachment.createdAt,
         ],
       );
     }

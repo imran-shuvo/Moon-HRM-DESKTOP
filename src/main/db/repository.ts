@@ -19,6 +19,8 @@ import {
   PayrollSettings,
   Payslip,
   PayslipInput,
+  PettyCashInput,
+  PettyCashTransaction,
   SalaryAdvance,
   SalaryAdvanceInput,
 } from '../../shared/types';
@@ -96,6 +98,25 @@ type AdvanceRow = {
   amount: number;
   note: string;
   created_at: Date;
+};
+
+type PettyCashRow = {
+  id: string;
+  employee_id: string;
+  transaction_date: string;
+  kind: PettyCashTransaction['kind'];
+  amount: number;
+  note: string;
+  remarks: string;
+  created_at: Date;
+};
+
+type PettyCashAttachmentRow = {
+  id: string;
+  transaction_id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
 };
 
 type PayslipRow = {
@@ -201,6 +222,12 @@ function toDocument(row: DocumentRow): DocumentRecord {
 const ADVANCE_COLUMNS =
   'id, employee_id, advance_date, amount, note, created_at';
 
+const PETTY_CASH_COLUMNS =
+  'id, employee_id, transaction_date, kind, amount, note, remarks, created_at';
+
+const PETTY_CASH_ATTACHMENT_COLUMNS =
+  'id, transaction_id, file_name, mime_type, size_bytes';
+
 const PAYSLIP_COLUMNS = `
   id, employee_id, month, employee_name, iqama_no, role, designation,
   project_name, camp_name, working_days, present_days, absent_days,
@@ -218,6 +245,15 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function toAttachment(row: AttachmentRow): ExpenseAttachment {
+  return {
+    id: row.id,
+    name: row.file_name,
+    type: row.mime_type,
+    size: row.size_bytes,
+  };
+}
+
+function toPettyCashAttachment(row: PettyCashAttachmentRow): ExpenseAttachment {
   return {
     id: row.id,
     name: row.file_name,
@@ -299,6 +335,23 @@ function toAdvance(row: AdvanceRow): SalaryAdvance {
     date: row.advance_date,
     amount: row.amount,
     note: row.note,
+    createdAt: row.created_at.getTime(),
+  };
+}
+
+function toPettyCash(
+  row: PettyCashRow,
+  attachments: ExpenseAttachment[],
+): PettyCashTransaction {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    date: row.transaction_date,
+    kind: row.kind,
+    amount: row.amount,
+    note: row.note,
+    remarks: row.remarks,
+    attachments,
     createdAt: row.created_at.getTime(),
   };
 }
@@ -555,11 +608,25 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
         `SELECT ${DOCUMENT_COLUMNS} FROM documents
          ORDER BY document_date DESC, created_at DESC`,
       );
+      const pettyCash = await client.query<PettyCashRow>(
+        `SELECT ${PETTY_CASH_COLUMNS} FROM petty_cash_transactions
+         ORDER BY transaction_date DESC, created_at DESC`,
+      );
+      const pettyCashAttachments = await client.query<PettyCashAttachmentRow>(
+        `SELECT ${PETTY_CASH_ATTACHMENT_COLUMNS} FROM petty_cash_attachments
+         ORDER BY created_at, file_name`,
+      );
       const attachmentsByExpense = new Map<string, ExpenseAttachment[]>();
       attachments.rows.forEach((row) => {
         const list = attachmentsByExpense.get(row.expense_id) ?? [];
         list.push(toAttachment(row));
         attachmentsByExpense.set(row.expense_id, list);
+      });
+      const attachmentsByPettyCash = new Map<string, ExpenseAttachment[]>();
+      pettyCashAttachments.rows.forEach((row) => {
+        const list = attachmentsByPettyCash.get(row.transaction_id) ?? [];
+        list.push(toPettyCashAttachment(row));
+        attachmentsByPettyCash.set(row.transaction_id, list);
       });
       return {
         expenses: expenses.rows.map((row) =>
@@ -574,6 +641,9 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
         payslips: payslips.rows.map(toPayslip),
         payrollSettings,
         documents: documents.rows.map(toDocument),
+        pettyCash: pettyCash.rows.map((row) =>
+          toPettyCash(row, attachmentsByPettyCash.get(row.id) ?? []),
+        ),
       };
     },
     { isolation: 'REPEATABLE READ' },
@@ -837,18 +907,24 @@ export function deleteEmployee(db: Database, id: string): Promise<void> {
       attendance: boolean;
       advances: boolean;
       payslips: boolean;
+      petty_cash: boolean;
     }>(
       `SELECT name,
          EXISTS (SELECT 1 FROM attendance WHERE employee_id = $1) AS attendance,
          EXISTS (SELECT 1 FROM salary_advances WHERE employee_id = $1) AS advances,
-         EXISTS (SELECT 1 FROM payslips WHERE employee_id = $1) AS payslips
+         EXISTS (SELECT 1 FROM payslips WHERE employee_id = $1) AS payslips,
+         EXISTS (SELECT 1 FROM petty_cash_transactions WHERE employee_id = $1)
+           AS petty_cash
        FROM employees WHERE id = $1 FOR UPDATE`,
       [id],
     );
     if (!rows[0]) {
       throw new AppError('NOT_FOUND', 'That employee no longer exists.');
     }
-    assertNoPayrollHistory(rows[0].name, rows[0]);
+    assertNoPayrollHistory(rows[0].name, {
+      ...rows[0],
+      pettyCash: rows[0].petty_cash,
+    });
     await client.query('DELETE FROM employees WHERE id = $1', [id]);
   });
 }
@@ -1056,6 +1132,154 @@ export async function deleteSalaryAdvance(
   if (!rowCount) {
     throw new AppError('NOT_FOUND', 'That advance no longer exists.');
   }
+}
+
+async function insertPettyCashAttachments(
+  client: Queryable,
+  transactionId: string,
+  files: AttachmentUpload[],
+): Promise<void> {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const file of files) {
+    // eslint-disable-next-line no-await-in-loop
+    await client.query(
+      `INSERT INTO petty_cash_attachments
+         (transaction_id, file_name, mime_type, size_bytes, content)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        transactionId,
+        file.name,
+        file.type,
+        file.data.byteLength,
+        Buffer.from(
+          file.data.buffer,
+          file.data.byteOffset,
+          file.data.byteLength,
+        ),
+      ],
+    );
+  }
+}
+
+async function loadPettyCash(
+  client: Queryable,
+  id: string,
+): Promise<PettyCashTransaction> {
+  const { rows } = await client.query<PettyCashRow>(
+    `SELECT ${PETTY_CASH_COLUMNS} FROM petty_cash_transactions WHERE id = $1`,
+    [id],
+  );
+  if (!rows[0]) {
+    throw new AppError('NOT_FOUND', 'That petty cash entry no longer exists.');
+  }
+  const attachments = await client.query<PettyCashAttachmentRow>(
+    `SELECT ${PETTY_CASH_ATTACHMENT_COLUMNS} FROM petty_cash_attachments
+     WHERE transaction_id = $1 ORDER BY created_at, file_name`,
+    [id],
+  );
+  return toPettyCash(rows[0], attachments.rows.map(toPettyCashAttachment));
+}
+
+export function createPettyCash(
+  db: Database,
+  input: PettyCashInput,
+  files: AttachmentUpload[],
+): Promise<PettyCashTransaction> {
+  return db.transaction(async (client) => {
+    await lockEmployees(client, [input.employeeId]);
+    const { rows } = await client.query<{ id: string }>(
+      `INSERT INTO petty_cash_transactions
+         (employee_id, transaction_date, kind, amount, note, remarks)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [
+        input.employeeId,
+        input.date,
+        input.kind,
+        input.amount,
+        input.note,
+        input.remarks,
+      ],
+    );
+    await insertPettyCashAttachments(client, rows[0].id, files);
+    return loadPettyCash(client, rows[0].id);
+  });
+}
+
+export function updatePettyCash(
+  db: Database,
+  id: string,
+  input: PettyCashInput,
+  files: AttachmentUpload[],
+  removeAttachmentIds: string[],
+): Promise<PettyCashTransaction> {
+  assertUuid(id);
+  removeAttachmentIds.forEach(assertUuid);
+  return db.transaction(async (client) => {
+    await lockEmployees(client, [input.employeeId]);
+    const { rowCount } = await client.query(
+      `UPDATE petty_cash_transactions SET
+         employee_id = $2, transaction_date = $3, kind = $4, amount = $5,
+         note = $6, remarks = $7, updated_at = now()
+       WHERE id = $1`,
+      [
+        id,
+        input.employeeId,
+        input.date,
+        input.kind,
+        input.amount,
+        input.note,
+        input.remarks,
+      ],
+    );
+    if (!rowCount) {
+      throw new AppError(
+        'NOT_FOUND',
+        'That petty cash entry no longer exists.',
+      );
+    }
+    // Only this entry's files, so an id from another entry is ignored.
+    await client.query(
+      `DELETE FROM petty_cash_attachments
+       WHERE transaction_id = $1 AND id = ANY($2::uuid[])`,
+      [id, removeAttachmentIds],
+    );
+    await insertPettyCashAttachments(client, id, files);
+    return loadPettyCash(client, id);
+  });
+}
+
+export async function deletePettyCash(db: Database, id: string): Promise<void> {
+  assertUuid(id);
+  // Its files are removed by ON DELETE CASCADE in the same statement.
+  const { rowCount } = await db.query(
+    'DELETE FROM petty_cash_transactions WHERE id = $1',
+    [id],
+  );
+  if (!rowCount) {
+    throw new AppError('NOT_FOUND', 'That petty cash entry no longer exists.');
+  }
+}
+
+export async function getPettyCashAttachment(
+  db: Database,
+  id: string,
+): Promise<AttachmentContent | undefined> {
+  if (!UUID_PATTERN.test(id)) return undefined;
+  const { rows } = await db.query<{
+    file_name: string;
+    mime_type: string;
+    content: Buffer;
+  }>(
+    'SELECT file_name, mime_type, content FROM petty_cash_attachments WHERE id = $1',
+    [id],
+  );
+  if (!rows[0]) return undefined;
+  return {
+    name: rows[0].file_name,
+    type: rows[0].mime_type,
+    data: new Uint8Array(rows[0].content),
+  };
 }
 
 function existingPayslipError(name: string, month: string) {

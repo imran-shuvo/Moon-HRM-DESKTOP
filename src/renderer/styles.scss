@@ -1201,3 +1201,31 @@ th.sheet-total.status-vacation, th.sheet-total.status-holiday { color: var(--sta
 .moon-calc-table tr.calc-note td { color: var(--moon-muted); font-style: italic; }
 .moon-calc-table tfoot tr.calc-net td { font-size: 11pt; }
 .pay-calculation-print { break-inside: avoid; }
+
+/* ───────────── Petty cash ───────────── */
+.petty-cash-fields { min-width: 0; margin: 0; border: 0; padding: 0; }
+.petty-cash-kind { display: flex; margin-bottom: 14px; }
+.petty-cash-kind button { flex: 1; }
+.petty-cash-warning { display: block; margin-top: 4px; color: #b2333e; font-size: 12px; }
+.petty-cash-files-heading { margin: 16px 0 8px; color: #3a3b48; font-size: 13px; font-weight: 650; }
+.upload-list li.upload-removed span { color: #a2a3ae; text-decoration: line-through; }
+.petty-amount-given { color: #2f6fc4; }
+.petty-amount-received { color: #1d7550; }
+.petty-cash-note { max-width: 320px; }
+.petty-cash-note > span { display: block; color: #4a4b58; font-size: 12px; }
+.petty-cash-files { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.file-chip { max-width: 180px; overflow: hidden; border: 1px solid #e3e1f3; border-radius: 999px; padding: 2px 9px; color: #4c4296; background: #faf9ff; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.file-chip:hover:not(:disabled) { border-color: #b9b1ee; background: #f0edff; }
+.petty-cash-remarks { display: block; margin-top: 2px; color: #7d7e8c; font-size: 11.5px; font-style: italic; white-space: pre-line; }
+
+/* Printed petty cash report (A4 landscape) */
+.moon-report-worker { margin: 14px 0 0; color: #333; font-size: 11pt; }
+.moon-report-petty-balances th, .moon-report-petty-balances td,
+.moon-report-petty-entries th, .moon-report-petty-entries td { padding: 6px; font-size: 8.5pt; }
+.moon-report-petty-balances th:nth-child(1) { width: 6%; }
+.moon-report-petty-entries th:nth-child(1) { width: 5%; }
+.moon-report-petty-entries th:nth-child(2) { width: 9.5%; }
+.moon-report .petty-negative { color: #c2483d; }
+.moon-report .petty-remarks { white-space: pre-line; }
+.moon-report .petty-remarks-text { display: block; margin-top: 2px; color: #666; font-style: italic; }
+.moon-report .petty-documents { color: #555; font-size: 7.5pt; overflow-wrap: anywhere; }

@@ -13,6 +13,7 @@ import {
   LegacyImportPayload,
   PayrollSettings,
   PayslipInput,
+  PettyCashInput,
   SalaryAdvanceInput,
 } from './types';
 
@@ -271,6 +272,28 @@ export function validateSalaryAdvanceInput(value: unknown): SalaryAdvanceInput {
     amount: money(input.amount, 'Advance amount', { allowZero: false }),
     note: text(input.note, 'Note', { max: 200 }),
   };
+}
+
+export function validatePettyCashInput(value: unknown): PettyCashInput {
+  const input = asRecord(value, 'Petty cash entry');
+  if (input.kind !== 'given' && input.kind !== 'received') {
+    fail('Choose whether the cash was given or settled.');
+  }
+  return {
+    employeeId: recordId(input.employeeId),
+    date: isoDate(input.date, 'Date'),
+    kind: input.kind,
+    amount: money(input.amount, 'Amount', { allowZero: false }),
+    note: text(input.note, 'Description', { max: 300 }),
+    remarks: text(input.remarks, 'Remarks', { max: 1000 }),
+  };
+}
+
+/** Ids of attachments to remove; none when not given. */
+export function validateAttachmentIds(value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) fail('The files to remove are malformed.');
+  return [...new Set(value.map(recordId))];
 }
 
 export function validateSalaryAdvanceInputs(

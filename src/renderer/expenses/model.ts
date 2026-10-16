@@ -1,9 +1,15 @@
-import type { BudgetTransaction, Employee, Expense } from '../../shared/types';
+import type {
+  BudgetTransaction,
+  Employee,
+  Expense,
+  PettyCashTransaction,
+} from '../../shared/types';
 
 export type Section =
   | 'Overview'
   | 'Transactions'
   | 'Budgets'
+  | 'Petty Cash'
   | 'Employees'
   | 'Attendance'
   | 'Payroll'
@@ -27,6 +33,8 @@ export type {
   ExpenseAttachment,
   PayrollSettings,
   Payslip,
+  PettyCashKind,
+  PettyCashTransaction,
   SalaryAdvance,
 } from '../../shared/types';
 
@@ -321,4 +329,55 @@ export function formatReportAmount(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+const toCents = (value: number) => Math.round(value * 100);
+
+export type PettyCashBalance = {
+  given: number;
+  received: number;
+  /** Cash still in the worker's hands; negative if they settled more. */
+  inHand: number;
+};
+
+/** Each employee's petty cash totals, by employee id. */
+export function pettyCashBalances(entries: PettyCashTransaction[]) {
+  const cents = new Map<string, { given: number; received: number }>();
+  entries.forEach((entry) => {
+    const totals = cents.get(entry.employeeId) ?? { given: 0, received: 0 };
+    totals[entry.kind] += toCents(entry.amount);
+    cents.set(entry.employeeId, totals);
+  });
+  return new Map<string, PettyCashBalance>(
+    [...cents].map(([id, { given, received }]) => [
+      id,
+      {
+        given: given / 100,
+        received: received / 100,
+        inHand: (given - received) / 100,
+      },
+    ]),
+  );
+}
+
+/** Oldest first: by date, then the order the entries were made. */
+export function byPettyCashOrder(
+  a: PettyCashTransaction,
+  b: PettyCashTransaction,
+) {
+  return a.date.localeCompare(b.date) || a.createdAt - b.createdAt;
+}
+
+/** The worker's balance in hand right after each entry, by entry id. */
+export function pettyCashRunningBalances(entries: PettyCashTransaction[]) {
+  const running = new Map<string, number>();
+  const after = new Map<string, number>();
+  [...entries].sort(byPettyCashOrder).forEach((entry) => {
+    const change =
+      entry.kind === 'given' ? toCents(entry.amount) : -toCents(entry.amount);
+    const cents = (running.get(entry.employeeId) ?? 0) + change;
+    running.set(entry.employeeId, cents);
+    after.set(entry.id, cents / 100);
+  });
+  return after;
 }

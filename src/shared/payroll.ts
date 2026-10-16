@@ -439,17 +439,23 @@ export function calculatePayslip(
 /** Refuses to delete an employee whose payroll history would be lost. */
 export function assertNoPayrollHistory(
   name: string,
-  history: { attendance: boolean; advances: boolean; payslips: boolean },
+  history: {
+    attendance: boolean;
+    advances: boolean;
+    payslips: boolean;
+    pettyCash: boolean;
+  },
 ) {
   const kept = [
     history.attendance && 'attendance',
     history.advances && 'advances',
     history.payslips && 'payslips',
+    history.pettyCash && 'petty cash',
   ].filter(Boolean);
   if (kept.length) {
     throw new AppError(
       'IN_USE',
-      `${name} has ${kept.join(', ')} on record, so they cannot be deleted. Their payroll history is kept.`,
+      `${name} has ${kept.join(', ')} on record, so they cannot be deleted. Their history is kept.`,
     );
   }
 }

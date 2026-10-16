@@ -127,6 +127,30 @@ export type SalaryAdvance = {
 
 export type SalaryAdvanceInput = Omit<SalaryAdvance, 'id' | 'createdAt'>;
 
+/** 'given': cash handed to the worker. 'received': an amount they settled with you. */
+export type PettyCashKind = 'given' | 'received';
+
+/** One movement of petty cash; a worker's balance is given minus received. */
+export type PettyCashTransaction = {
+  id: string;
+  employeeId: string;
+  date: string;
+  kind: PettyCashKind;
+  amount: number;
+  /** A short description, e.g. what the cash was for. */
+  note: string;
+  /** Longer free-text remarks. */
+  remarks: string;
+  /** Reference documents such as receipts or a signed slip. */
+  attachments: ExpenseAttachment[];
+  createdAt: number;
+};
+
+export type PettyCashInput = Pick<
+  PettyCashTransaction,
+  'employeeId' | 'date' | 'kind' | 'amount' | 'note' | 'remarks'
+>;
+
 export type PayslipStatus = 'unpaid' | 'paid';
 
 /**
@@ -261,6 +285,7 @@ export type FinanceSnapshot = {
   payrollSettings: PayrollSettings;
   /** Uploaded documents, without their file contents. */
   documents: DocumentRecord[];
+  pettyCash: PettyCashTransaction[];
 };
 
 /** Data saved in localStorage/IndexedDB by the pre-database version of the app. */
@@ -308,6 +333,8 @@ export type BackupCounts = {
   salaryAdvances: number;
   payslips: number;
   documents: number;
+  pettyCash: number;
+  pettyCashAttachments: number;
 };
 
 export type BackupFileInfo = {
@@ -414,6 +441,22 @@ export type FinanceApi = {
     open: (id: string) => Promise<void>;
     /** Saves a copy where the user chooses; undefined when cancelled. */
     saveAs: (id: string) => Promise<string | undefined>;
+  };
+  pettyCash: {
+    create: (
+      input: PettyCashInput,
+      files: AttachmentUpload[],
+    ) => Promise<PettyCashTransaction>;
+    /** Adds `files` and removes the attachments in `removeAttachmentIds`. */
+    update: (
+      id: string,
+      input: PettyCashInput,
+      files: AttachmentUpload[],
+      removeAttachmentIds: string[],
+    ) => Promise<PettyCashTransaction>;
+    remove: (id: string) => Promise<void>;
+    /** Opens the file in the operating system's default viewer. */
+    openAttachment: (id: string) => Promise<void>;
   };
   payroll: {
     updateSettings: (settings: PayrollSettings) => Promise<PayrollSettings>;

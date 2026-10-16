@@ -62,6 +62,7 @@ import MonthClosingPanel from './expenses/components/MonthClosingPanel';
 import AttendancePanel from './expenses/components/AttendancePanel';
 import PayrollPanel from './expenses/components/PayrollPanel';
 import DocumentsPanel from './expenses/components/DocumentsPanel';
+import PettyCashPanel from './expenses/components/PettyCashPanel';
 import PayrollPolicyPanel from './expenses/components/PayrollPolicyPanel';
 import { PrintJob } from './expenses/components/printJob';
 import BackupPanel from './expenses/components/BackupPanel';
@@ -79,6 +80,7 @@ const EMPTY_SNAPSHOT: FinanceSnapshot = {
   payslips: [],
   payrollSettings: DEFAULT_PAYROLL_SETTINGS,
   documents: [],
+  pettyCash: [],
 };
 
 /** Reload from the database when the window regains focus, at most this often. */
@@ -173,6 +175,7 @@ const SECTION_EYEBROWS: Record<Section, string> = {
   Overview: 'FINANCE',
   Transactions: 'FINANCE',
   Budgets: 'FINANCE',
+  'Petty Cash': 'FINANCE',
   Reports: 'FINANCE',
   Employees: 'PEOPLE',
   Attendance: 'PEOPLE',
@@ -194,6 +197,11 @@ const TITLES: Record<Section, { title: string; subtitle: string }> = {
   Budgets: {
     title: 'Budgets',
     subtitle: 'Review every budget received by the company.',
+  },
+  'Petty Cash': {
+    title: 'Petty cash',
+    subtitle:
+      "Cash in each worker's hands, every payment back to you, and the receipts behind it.",
   },
   Employees: {
     title: 'Employees',
@@ -1028,6 +1036,28 @@ export default function App({ api }: { api: FinanceApi }) {
               />
             )}
 
+            {section === 'Petty Cash' && (
+              <PettyCashPanel
+                employees={employees}
+                entries={data.pettyCash}
+                onPrint={setPrintJob}
+                onSaved={(saved) =>
+                  setData((current) => ({
+                    ...current,
+                    pettyCash: upsert(current.pettyCash, saved),
+                  }))
+                }
+                onRemoved={(id) =>
+                  setData((current) => ({
+                    ...current,
+                    pettyCash: current.pettyCash.filter(
+                      (item) => item.id !== id,
+                    ),
+                  }))
+                }
+              />
+            )}
+
             {section === 'Employees' && (
               <EmployeePanel
                 employees={employees}
@@ -1200,8 +1230,8 @@ export default function App({ api }: { api: FinanceApi }) {
           >
             {employeeToDelete.name} (Iqama no. {employeeToDelete.iqamaNo}) will
             be removed. Transactions already saved with this name keep it. An
-            employee with attendance, advances or payslips cannot be deleted, so
-            payroll history is never lost.
+            employee with attendance, advances, payslips or petty cash cannot be
+            deleted, so their history is never lost.
           </ConfirmDialog>
         )}
         {selectedExpense && (

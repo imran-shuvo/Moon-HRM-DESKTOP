@@ -23,6 +23,8 @@ import {
   validatePaidDate,
   validatePayrollSettings,
   validatePayslipInputs,
+  validatePettyCashInput,
+  validateAttachmentIds,
   validateSalaryAdvanceInput,
   validateSalaryAdvanceInputs,
   validateBudgetTransactionInput,
@@ -236,6 +238,34 @@ export default function registerIpcHandlers({
     if (result.canceled || !result.filePath) return undefined;
     await fs.writeFile(result.filePath, file.data);
     return result.filePath;
+  });
+
+  handle(IPC.pettyCashCreate, (input: unknown, files: unknown) =>
+    repository.createPettyCash(
+      db(),
+      validatePettyCashInput(input),
+      validateUploads(files),
+    ),
+  );
+  handle(
+    IPC.pettyCashUpdate,
+    (id: unknown, input: unknown, files: unknown, removeIds: unknown) =>
+      repository.updatePettyCash(
+        db(),
+        recordId(id),
+        validatePettyCashInput(input),
+        validateUploads(files),
+        validateAttachmentIds(removeIds),
+      ),
+  );
+  handle(IPC.pettyCashDelete, (id: unknown) =>
+    repository.deletePettyCash(db(), recordId(id)),
+  );
+  handle(IPC.pettyCashOpenAttachment, async (id: unknown) => {
+    const attachmentId = recordId(id);
+    const file = await repository.getPettyCashAttachment(db(), attachmentId);
+    if (!file) throw new AppError('NOT_FOUND', 'That file no longer exists.');
+    await openStoredFile(attachmentId, file);
   });
 
   handle(IPC.budgetCreate, (input: unknown) =>

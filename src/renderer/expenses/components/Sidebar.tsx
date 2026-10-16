@@ -11,6 +11,7 @@ const NAVIGATION: {
       { label: 'Overview', icon: '◫' },
       { label: 'Transactions', icon: '↕' },
       { label: 'Budgets', icon: '▥' },
+      { label: 'Petty Cash', icon: '◈' },
       { label: 'Reports', icon: '▤' },
     ],
   },

@@ -62,6 +62,13 @@ const financeApi: FinanceApi = {
     open: (id) => invoke(IPC.documentOpen, id),
     saveAs: (id) => invoke(IPC.documentSaveAs, id),
   },
+  pettyCash: {
+    create: (input, files) => invoke(IPC.pettyCashCreate, input, files),
+    update: (id, input, files, removeAttachmentIds) =>
+      invoke(IPC.pettyCashUpdate, id, input, files, removeAttachmentIds),
+    remove: (id) => invoke(IPC.pettyCashDelete, id),
+    openAttachment: (id) => invoke(IPC.pettyCashOpenAttachment, id),
+  },
   payroll: {
     updateSettings: (settings) => invoke(IPC.payrollUpdateSettings, settings),
   },

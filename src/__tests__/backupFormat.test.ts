@@ -90,7 +90,81 @@ describe('backup file format', () => {
       salaryAdvances: 0,
       payslips: 0,
       documents: 0,
+      pettyCash: 0,
+      pettyCashAttachments: 0,
     });
+  });
+
+  it('keeps petty cash and its files, and checks what they belong to', () => {
+    const employeeId = '33333333-3333-4333-8333-333333333333';
+    const entryId = '44444444-4444-4444-8444-444444444444';
+    const withPettyCash: BackupData = {
+      ...sampleData(),
+      employees: [
+        {
+          id: employeeId,
+          name: 'Rahim Uddin',
+          iqamaNo: '2412345678',
+          designation: '',
+          projectName: 'Mall',
+          phoneNo: '',
+          insuranceNo: '',
+          iqamaExpiry: null,
+          campName: '',
+          createdAt,
+          updatedAt: createdAt,
+        },
+      ],
+      pettyCash: [
+        {
+          id: entryId,
+          employeeId,
+          transactionDate: '2026-10-02',
+          kind: 'received',
+          amount: 250,
+          note: 'Returned cash',
+          createdAt,
+          updatedAt: createdAt,
+          remarks: 'Counted twice',
+        },
+      ],
+      pettyCashAttachments: [
+        {
+          id: '55555555-5555-4555-8555-555555555555',
+          transactionId: entryId,
+          fileName: 'slip.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 3,
+          contentBase64: Buffer.from([1, 2, 3]).toString('base64'),
+          createdAt,
+        },
+      ],
+    };
+    const parsed = parseBackup(
+      serializeBackup(buildBackupDocument(withPettyCash, meta)),
+    );
+    expect(parsed.data).toEqual(withPettyCash);
+    expect(parsed.counts).toEqual(
+      expect.objectContaining({ pettyCash: 1, pettyCashAttachments: 1 }),
+    );
+
+    const noEmployee = { ...withPettyCash, employees: [] };
+    expect(() =>
+      parseBackup(serializeBackup(buildBackupDocument(noEmployee, meta))),
+    ).toThrow(/petty cash entry belongs to a missing employee/);
+
+    const noEntry = { ...withPettyCash, pettyCash: [] };
+    expect(() =>
+      parseBackup(serializeBackup(buildBackupDocument(noEntry, meta))),
+    ).toThrow(/petty cash file belongs to a missing entry/);
+
+    const badKind = {
+      ...withPettyCash,
+      pettyCash: [{ ...withPettyCash.pettyCash![0], kind: 'spent' }],
+    } as unknown as BackupData;
+    expect(() =>
+      parseBackup(serializeBackup(buildBackupDocument(badKind, meta))),
+    ).toThrow(/Petty cash entries record #1 is malformed/);
   });
 
   it('keeps attendance, advances, payslips and payroll settings', () => {

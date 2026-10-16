@@ -48,8 +48,8 @@ browser-storage key `moon-expenses-v1-imported`.
 
 A backup is a single `.mfbackup` file. It is gzip-compressed JSON with a
 SHA-256 checksum, and it contains every record **and the receipt files**,
-including attendance, salary advances, payslips, the payroll settings and
-uploaded documents (with their files).
+including attendance, salary advances, payslips, the payroll settings,
+uploaded documents and petty cash (with their files).
 Backups made before payroll existed still restore; they restore with no
 attendance or payslips and the default payroll settings. It
 does not depend on `pg_dump` or on the PostgreSQL version, so you can restore it
@@ -110,7 +110,11 @@ between app backups.
 - Documents are stored in the `documents` table, file contents included, so
   every computer sees them and one backup holds everything. Deleting an
   employee keeps their documents (the link is cleared).
-- Attendance, advances and payslips reference employees with
+- Petty cash is in `petty_cash_transactions` (`kind` is `given` or
+  `received`; a worker's balance in hand is given minus received) and its
+  reference files in `petty_cash_attachments`, which are deleted with their
+  entry.
+- Attendance, advances, payslips and petty cash reference employees with
   `ON DELETE RESTRICT`. A paid payslip cannot be changed or deleted until it
   is marked unpaid. Saving several payslips is one transaction: if one is
   refused, none are saved.

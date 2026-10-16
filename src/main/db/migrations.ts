@@ -405,6 +405,51 @@ export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
           - advance_deduction - other_deduction) STORED;
     `,
   },
+  {
+    version: 11,
+    name: 'petty cash',
+    sql: `
+      -- Cash handed to a worker ('given') and cash they paid back
+      -- ('received'). Their balance in hand is given minus received.
+      -- Like payroll, history is kept: an employee with petty cash on
+      -- record cannot be deleted.
+      CREATE TABLE petty_cash_transactions (
+        id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        employee_id       UUID NOT NULL REFERENCES employees (id) ON DELETE RESTRICT,
+        transaction_date  DATE NOT NULL,
+        kind              TEXT NOT NULL CHECK (kind IN ('given', 'received')),
+        amount            NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
+        note              TEXT NOT NULL DEFAULT '',
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX petty_cash_transactions_employee_idx
+        ON petty_cash_transactions (employee_id, transaction_date);
+
+      -- Reference documents (receipts, signed slips), stored in the
+      -- database like expense receipts so backups include them.
+      CREATE TABLE petty_cash_attachments (
+        id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        transaction_id  UUID NOT NULL
+                        REFERENCES petty_cash_transactions (id) ON DELETE CASCADE,
+        file_name       TEXT NOT NULL,
+        mime_type       TEXT NOT NULL DEFAULT 'application/octet-stream',
+        size_bytes      INTEGER NOT NULL CHECK (size_bytes >= 0),
+        content         BYTEA NOT NULL,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX petty_cash_attachments_transaction_idx
+        ON petty_cash_attachments (transaction_id);
+    `,
+  },
+  {
+    version: 12,
+    name: 'petty cash remarks',
+    sql: `
+      ALTER TABLE petty_cash_transactions
+        ADD COLUMN remarks TEXT NOT NULL DEFAULT '';
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

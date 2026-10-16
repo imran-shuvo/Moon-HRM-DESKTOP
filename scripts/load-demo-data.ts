@@ -23,6 +23,7 @@ const TABLES = [
   'salary_advances',
   'payslips',
   'documents',
+  'petty_cash_transactions',
 ];
 
 async function main() {

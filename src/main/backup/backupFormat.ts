@@ -14,7 +14,8 @@ import { BackupCounts, BackupKind } from '../../shared/types';
  *   checksum: sha256(JSON.stringify(data)),
  *   data: { categories, departments, expenses, attachments, budgetReceipts,
  *           payees?, budgetPayers?, employees?, attendance?,
- *           salaryAdvances?, payslips?, payrollSettings? }
+ *           salaryAdvances?, payslips?, payrollSettings?, documents?,
+ *           pettyCash?, pettyCashAttachments? }
  * }
  *
  * `payees` and `budgetPayers` are only in backups made before employees
@@ -22,6 +23,7 @@ import { BackupCounts, BackupKind } from '../../shared/types';
  * added later; backups without it restore with no employees. Attendance,
  * advances, payslips and payroll settings were added after that; backups
  * without them restore with none (and the default payroll settings).
+ * Documents and then petty cash were added later still, the same way.
  *
  * It is independent of pg_dump/PostgreSQL versions and contains receipts,
  * so one file is enough to rebuild the company's data on any new server.
@@ -112,6 +114,29 @@ export type BackupDocumentFile = {
   contentBase64: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type BackupPettyCash = {
+  id: string;
+  employeeId: string;
+  transactionDate: string;
+  kind: 'given' | 'received';
+  amount: number;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Absent in backups made before remarks were added. */
+  remarks?: string;
+};
+
+export type BackupPettyCashAttachment = {
+  id: string;
+  transactionId: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  contentBase64: string;
+  createdAt: string;
 };
 
 export type BackupAttendance = {
@@ -206,6 +231,8 @@ export type BackupData = {
   payslips?: BackupPayslip[];
   payrollSettings?: BackupPayrollSettings;
   documents?: BackupDocumentFile[];
+  pettyCash?: BackupPettyCash[];
+  pettyCashAttachments?: BackupPettyCashAttachment[];
 };
 
 export type BackupDocument = {
@@ -238,6 +265,8 @@ export function countRecords(data: BackupData): BackupCounts {
     salaryAdvances: data.salaryAdvances?.length ?? 0,
     payslips: data.payslips?.length ?? 0,
     documents: data.documents?.length ?? 0,
+    pettyCash: data.pettyCash?.length ?? 0,
+    pettyCashAttachments: data.pettyCashAttachments?.length ?? 0,
   };
 }
 
@@ -530,6 +559,39 @@ function validateData(value: unknown): BackupData {
             isTimestamp(r.updatedAt),
         );
 
+  data.pettyCash =
+    raw.pettyCash === undefined
+      ? undefined
+      : checkRecords(
+          raw.pettyCash,
+          'Petty cash entries',
+          (r) =>
+            isString(r.id) &&
+            isString(r.employeeId) &&
+            isDate(r.transactionDate) &&
+            (r.kind === 'given' || r.kind === 'received') &&
+            isNumber(r.amount) &&
+            isString(r.note) &&
+            (r.remarks === undefined || isString(r.remarks)) &&
+            isTimestamp(r.createdAt) &&
+            isTimestamp(r.updatedAt),
+        );
+  data.pettyCashAttachments =
+    raw.pettyCashAttachments === undefined
+      ? undefined
+      : checkRecords(
+          raw.pettyCashAttachments,
+          'Petty cash files',
+          (r) =>
+            isString(r.id) &&
+            isString(r.transactionId) &&
+            isString(r.fileName) &&
+            isString(r.mimeType) &&
+            isNumber(r.sizeBytes) &&
+            isString(r.contentBase64) &&
+            isTimestamp(r.createdAt),
+        );
+
   // Referential integrity, so a restore never fails half way on a foreign key.
   const categories = new Set(data.categories.map((item) => item.name));
   const departments = new Set(data.departments.map((item) => item.name));
@@ -554,7 +616,14 @@ function validateData(value: unknown): BackupData {
     ['an attendance record', data.attendance],
     ['an advance', data.salaryAdvances],
     ['a payslip', data.payslips],
+    ['a petty cash entry', data.pettyCash],
   ];
+  const pettyCashIds = new Set(data.pettyCash?.map((entry) => entry.id));
+  data.pettyCashAttachments?.forEach((attachment) => {
+    if (!pettyCashIds.has(attachment.transactionId)) {
+      invalid('a petty cash file belongs to a missing entry.');
+    }
+  });
   data.documents?.forEach((document) => {
     if (document.employeeId !== null && !employeeIds.has(document.employeeId)) {
       invalid('a document belongs to a missing employee.');

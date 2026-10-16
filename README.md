@@ -72,6 +72,13 @@ Built with Electron, React and TypeScript.
   shown in a folder per project, and can be opened or saved as a copy. The
   daily attendance register shows that day's signature sheets and uploads
   new ones.
+- **Petty cash**: record cash given to a worker and amounts they settle
+  with you, each with a date, a description, remarks and reference documents
+  (receipts, signed slips). **In hand** shows what every worker still holds;
+  **History** lists every entry with the balance after it, and opens its
+  files. **Preview** and **Save as PDF** print what is on screen; filtered to
+  one worker, it is their statement. A worker with petty cash on record
+  cannot be deleted.
 - **Types and departments**: chosen from dropdowns when adding an expense;
   a new one can be typed there and is saved for next time.
 - **Backup & restore**: automatic and manual backups to a single
