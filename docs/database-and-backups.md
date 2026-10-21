@@ -113,7 +113,8 @@ between app backups.
 - Petty cash is in `petty_cash_transactions` (`kind` is `given` or
   `received`; a worker's balance in hand is given minus received) and its
   reference files in `petty_cash_attachments`, which are deleted with their
-  entry.
+  entry. Entries in a closed month cannot be added, changed or deleted; the
+  amount carried into a month is worked out from the earlier entries.
 - Attendance, advances, payslips and petty cash reference employees with
   `ON DELETE RESTRICT`. A paid payslip cannot be changed or deleted until it
   is marked unpaid. Saving several payslips is one transaction: if one is

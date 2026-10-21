@@ -656,6 +656,9 @@ button.attachment-link { border: 0; padding: 0; background: transparent; cursor:
 .nav-group { display: grid; gap: 3px; }
 .nav-group .workspace-label { margin: 0 12px 4px; }
 .nav-item { height: 38px; }
+.nav-item.nav-subitem { height: 32px; margin-left: 32px; padding: 0 10px; font-size: 11.5px; }
+.nav-item.nav-subitem.active { background: #2c2e4b; color: #fff; box-shadow: inset 2px 0 0 #d0bbff; }
+@media (max-width: 760px) { .nav-item.nav-subitem { height: 35px; margin-left: 0; font-size: 10px; } }
 
 .people-section { display: grid; gap: 14px; padding-bottom: 70px; }
 .section-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 10px; }
@@ -1204,8 +1207,6 @@ th.sheet-total.status-vacation, th.sheet-total.status-holiday { color: var(--sta
 
 /* ───────────── Petty cash ───────────── */
 .petty-cash-fields { min-width: 0; margin: 0; border: 0; padding: 0; }
-.petty-cash-kind { display: flex; margin-bottom: 14px; }
-.petty-cash-kind button { flex: 1; }
 .petty-cash-warning { display: block; margin-top: 4px; color: #b2333e; font-size: 12px; }
 .petty-cash-files-heading { margin: 16px 0 8px; color: #3a3b48; font-size: 13px; font-weight: 650; }
 .upload-list li.upload-removed span { color: #a2a3ae; text-decoration: line-through; }
@@ -1217,6 +1218,14 @@ th.sheet-total.status-vacation, th.sheet-total.status-holiday { color: var(--sta
 .file-chip { max-width: 180px; overflow: hidden; border: 1px solid #e3e1f3; border-radius: 999px; padding: 2px 9px; color: #4c4296; background: #faf9ff; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .file-chip:hover:not(:disabled) { border-color: #b9b1ee; background: #f0edff; }
 .petty-cash-remarks { display: block; margin-top: 2px; color: #7d7e8c; font-size: 11.5px; font-style: italic; white-space: pre-line; }
+.report-toggle { display: inline-flex; border: 1px solid #dcd8f6; border-radius: 8px; padding: 2px; background: #f6f4fe; }
+.report-toggle button { min-height: 32px; border: 0; border-radius: 6px; padding: 0 14px; color: #5a5b6b; background: transparent; font-size: 12px; font-weight: 600; cursor: pointer; transition: background .15s, color .15s; }
+.report-toggle button:hover:not(.active) { color: #3f3594; background: #ebe7fc; }
+.report-toggle button.active { color: #fff; background: #7164d9; box-shadow: 0 2px 6px #7164d94d; }
+.petty-cash-totals { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .petty-cash-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .petty-cash-totals { grid-template-columns: 1fr; } }
+.petty-cash-closed { margin: 0 0 14px; font-size: 11px; }
 
 /* Printed petty cash report (A4 landscape) */
 .moon-report-worker { margin: 14px 0 0; color: #333; font-size: 11pt; }
@@ -1225,6 +1234,10 @@ th.sheet-total.status-vacation, th.sheet-total.status-holiday { color: var(--sta
 .moon-report-petty-balances th:nth-child(1) { width: 6%; }
 .moon-report-petty-entries th:nth-child(1) { width: 5%; }
 .moon-report-petty-entries th:nth-child(2) { width: 9.5%; }
+.moon-report .petty-carried-row td { color: #555; font-style: italic; }
+.moon-report-petty-in-hand { width: 60%; }
+.moon-report-petty-in-hand th, .moon-report-petty-in-hand td { padding: 7px 8px; font-size: 10pt; }
+.moon-report-petty-in-hand th:nth-child(1) { width: 12%; }
 .moon-report .petty-negative { color: #c2483d; }
 .moon-report .petty-remarks { white-space: pre-line; }
 .moon-report .petty-remarks-text { display: block; margin-top: 2px; color: #666; font-style: italic; }

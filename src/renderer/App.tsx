@@ -14,6 +14,8 @@ import {
   BudgetTransaction,
   Employee,
   Expense,
+  PETTY_CASH_SECTIONS,
+  PettyCashSection,
   Section,
   employeeNames,
   formatAmount,
@@ -175,7 +177,7 @@ const SECTION_EYEBROWS: Record<Section, string> = {
   Overview: 'FINANCE',
   Transactions: 'FINANCE',
   Budgets: 'FINANCE',
-  'Petty Cash': 'FINANCE',
+  'Petty Cash': 'FINANCE · PETTY CASH',
   Reports: 'FINANCE',
   Employees: 'PEOPLE',
   Attendance: 'PEOPLE',
@@ -258,6 +260,8 @@ export default function App({ api }: { api: FinanceApi }) {
     [data.budgetTransactions],
   );
   const [section, setSectionNow] = useState<Section>('Overview');
+  const [pettyCashSection, setPettyCashSection] =
+    useState<PettyCashSection>('given');
   // Leaving Attendance with unsaved entries asks first, so nothing is lost.
   const [attendanceDirty, setAttendanceDirty] = useState(false);
   const [pendingSection, setPendingSection] = useState<Section>();
@@ -838,7 +842,16 @@ export default function App({ api }: { api: FinanceApi }) {
   const [viewYear, viewMonthNumber] = viewMonth.split('-').map(Number);
   const shiftViewMonth = (offset: number) =>
     setViewMonth(monthKey(new Date(viewYear, viewMonthNumber - 1 + offset, 1)));
-  const pageTitle = section === 'Overview' ? greeting() : page.title;
+  const pettyCashPage = PETTY_CASH_SECTIONS.find(
+    (item) => item.id === pettyCashSection,
+  );
+  let pageTitle = page.title;
+  let pageSubtitle = page.subtitle;
+  if (section === 'Overview') pageTitle = greeting();
+  if (section === 'Petty Cash' && pettyCashPage) {
+    pageTitle = pettyCashPage.label;
+    pageSubtitle = pettyCashPage.subtitle;
+  }
 
   return (
     <FinanceApiProvider value={api}>
@@ -847,6 +860,11 @@ export default function App({ api }: { api: FinanceApi }) {
           budget={currentTotalBudget}
           onSelect={setSection}
           section={section}
+          pettyCashSection={pettyCashSection}
+          onSelectPettyCash={(next) => {
+            setPettyCashSection(next);
+            setSection('Petty Cash');
+          }}
           transactionCount={expenses.length}
           unpaidPayslipCount={
             data.payslips.filter((payslip) => payslip.status === 'unpaid')
@@ -926,7 +944,7 @@ export default function App({ api }: { api: FinanceApi }) {
                     : SECTION_EYEBROWS[section]}
                 </p>
                 <h1>{pageTitle}</h1>
-                <p className="page-subtitle">{page.subtitle}</p>
+                <p className="page-subtitle">{pageSubtitle}</p>
               </div>
               {section === 'Transactions' && (
                 <div className="heading-actions">
@@ -1039,7 +1057,9 @@ export default function App({ api }: { api: FinanceApi }) {
             {section === 'Petty Cash' && (
               <PettyCashPanel
                 employees={employees}
+                view={pettyCashSection}
                 entries={data.pettyCash}
+                isDateClosed={isDateClosed}
                 onPrint={setPrintJob}
                 onSaved={(saved) =>
                   setData((current) => ({

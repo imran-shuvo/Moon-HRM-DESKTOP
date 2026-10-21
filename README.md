@@ -74,11 +74,17 @@ Built with Electron, React and TypeScript.
   new ones.
 - **Petty cash**: record cash given to a worker and amounts they settle
   with you, each with a date, a description, remarks and reference documents
-  (receipts, signed slips). **In hand** shows what every worker still holds;
-  **History** lists every entry with the balance after it, and opens its
-  files. **Preview** and **Save as PDF** print what is on screen; filtered to
-  one worker, it is their statement. A worker with petty cash on record
-  cannot be deleted.
+  (receipts, vouchers). It is kept by month, in three pages listed under
+  Petty Cash in the sidebar: **Petty cash given** lists the cash handed out
+  (with the Give cash form), **Settlements** the amounts settled with their
+  vouchers (with the Record settlement form), and **Cash in hand** what each
+  worker carried in from last month, was given, settled and still holds;
+  its report can also be printed as **In hand only**, just each worker's
+  name and amount. What a worker holds when a month ends is
+  carried into the next, and a closed month's entries are read-only like
+  the rest of the books. Each section can be filtered, previewed and saved
+  as a PDF; **Statement** prints one worker's month. A worker with petty
+  cash on record cannot be deleted.
 - **Types and departments**: chosen from dropdowns when adding an expense;
   a new one can be typed there and is saved for next time.
 - **Backup & restore**: automatic and manual backups to a single

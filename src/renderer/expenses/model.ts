@@ -18,6 +18,32 @@ export type Section =
   | 'Settings'
   | 'Backup';
 
+/** Petty cash's pages: cash given, settlements, and what workers hold. */
+export type PettyCashSection = 'given' | 'received' | 'balances';
+
+export const PETTY_CASH_SECTIONS: {
+  id: PettyCashSection;
+  label: string;
+  subtitle: string;
+}[] = [
+  {
+    id: 'given',
+    label: 'Petty cash given',
+    subtitle: 'Cash handed to workers this month, with its documents.',
+  },
+  {
+    id: 'received',
+    label: 'Settlements',
+    subtitle: 'What workers settled with you, with the vouchers behind it.',
+  },
+  {
+    id: 'balances',
+    label: 'Cash in hand',
+    subtitle:
+      'What each worker holds: carried in, given and settled this month. It carries into the next month.',
+  },
+];
+
 export {
   EMPLOYEE_ROLES,
   EMPLOYEE_ROLE_LABELS,
@@ -357,6 +383,57 @@ export function pettyCashBalances(entries: PettyCashTransaction[]) {
         inHand: (given - received) / 100,
       },
     ]),
+  );
+}
+
+export type PettyCashMonthBalance = PettyCashBalance & {
+  /** In hand when the month began, carried over from earlier months. */
+  carried: number;
+};
+
+/**
+ * Each employee's petty cash for one month ('YYYY-MM'), by employee id:
+ * what they carried in from earlier months, what was given and settled
+ * during the month, and what they hold at its end (carried into the next
+ * month). Later months are ignored, and an employee with nothing carried
+ * and no entries in the month is left out.
+ */
+export function pettyCashMonthBalances(
+  entries: PettyCashTransaction[],
+  month: string,
+) {
+  const cents = new Map<
+    string,
+    { carried: number; given: number; received: number }
+  >();
+  entries.forEach((entry) => {
+    const entryMonth = entry.date.slice(0, 7);
+    if (entryMonth > month) return;
+    const totals = cents.get(entry.employeeId) ?? {
+      carried: 0,
+      given: 0,
+      received: 0,
+    };
+    const value = toCents(entry.amount);
+    if (entryMonth < month) {
+      totals.carried += entry.kind === 'given' ? value : -value;
+    } else {
+      totals[entry.kind] += value;
+    }
+    cents.set(entry.employeeId, totals);
+  });
+  return new Map<string, PettyCashMonthBalance>(
+    [...cents]
+      .filter(([, totals]) => totals.carried || totals.given || totals.received)
+      .map(([id, { carried, given, received }]) => [
+        id,
+        {
+          carried: carried / 100,
+          given: given / 100,
+          received: received / 100,
+          inHand: (carried + given - received) / 100,
+        },
+      ]),
   );
 }
 

@@ -1,5 +1,10 @@
 import moonLogo from '../../../../assets/moon-logo.png';
-import { formatCurrency, Section } from '../model';
+import {
+  PETTY_CASH_SECTIONS,
+  PettyCashSection,
+  Section,
+  formatCurrency,
+} from '../model';
 
 const NAVIGATION: {
   heading: string;
@@ -36,6 +41,8 @@ const NAVIGATION: {
 export default function Sidebar({
   section,
   onSelect,
+  pettyCashSection,
+  onSelectPettyCash,
   budget,
   transactionCount,
   unpaidPayslipCount,
@@ -43,6 +50,9 @@ export default function Sidebar({
 }: {
   section: Section;
   onSelect: (section: Section) => void;
+  /** The open Petty Cash page; its pages are listed under Petty Cash. */
+  pettyCashSection: PettyCashSection;
+  onSelectPettyCash: (page: PettyCashSection) => void;
   budget: number;
   transactionCount: number;
   unpaidPayslipCount: number;
@@ -62,7 +72,7 @@ export default function Sidebar({
         {NAVIGATION.map((group) => (
           <div className="nav-group" key={group.heading}>
             <div className="workspace-label">{group.heading}</div>
-            {group.items.map((item) => (
+            {group.items.map((item) => [
               <button
                 aria-current={section === item.label ? 'page' : undefined}
                 className={`nav-item${section === item.label ? ' active' : ''}`}
@@ -90,8 +100,23 @@ export default function Sidebar({
                     {unpaidPayslipCount}
                   </span>
                 )}
-              </button>
-            ))}
+              </button>,
+              item.label === 'Petty Cash' &&
+                section === 'Petty Cash' &&
+                PETTY_CASH_SECTIONS.map((page) => (
+                  <button
+                    aria-current={
+                      pettyCashSection === page.id ? 'page' : undefined
+                    }
+                    className={`nav-item nav-subitem${pettyCashSection === page.id ? ' active' : ''}`}
+                    key={page.id}
+                    onClick={() => onSelectPettyCash(page.id)}
+                    type="button"
+                  >
+                    {page.label}
+                  </button>
+                )),
+            ])}
           </div>
         ))}
       </nav>

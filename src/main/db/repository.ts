@@ -532,10 +532,14 @@ async function assertDatesOpen(client: Queryable, dates: string[]) {
  */
 async function lockedRecordDate(
   client: Queryable,
-  table: 'expenses' | 'budget_receipts',
+  table: 'expenses' | 'budget_receipts' | 'petty_cash_transactions',
   id: string,
 ): Promise<string> {
-  const column = table === 'expenses' ? 'expense_date' : 'received_date';
+  const column = {
+    expenses: 'expense_date',
+    budget_receipts: 'received_date',
+    petty_cash_transactions: 'transaction_date',
+  }[table];
   const { rows } = await client.query<{ date: string }>(
     `SELECT ${column} AS date FROM ${table} WHERE id = $1 FOR UPDATE`,
     [id],
@@ -543,9 +547,11 @@ async function lockedRecordDate(
   if (!rows[0]) {
     throw new AppError(
       'NOT_FOUND',
-      table === 'expenses'
-        ? 'That expense no longer exists.'
-        : 'That budget payment no longer exists.',
+      {
+        expenses: 'That expense no longer exists.',
+        budget_receipts: 'That budget payment no longer exists.',
+        petty_cash_transactions: 'That petty cash entry no longer exists.',
+      }[table],
     );
   }
   return rows[0].date;
@@ -1186,6 +1192,7 @@ export function createPettyCash(
   files: AttachmentUpload[],
 ): Promise<PettyCashTransaction> {
   return db.transaction(async (client) => {
+    await assertDatesOpen(client, [input.date]);
     await lockEmployees(client, [input.employeeId]);
     const { rows } = await client.query<{ id: string }>(
       `INSERT INTO petty_cash_transactions
@@ -1216,8 +1223,14 @@ export function updatePettyCash(
   assertUuid(id);
   removeAttachmentIds.forEach(assertUuid);
   return db.transaction(async (client) => {
+    const previousDate = await lockedRecordDate(
+      client,
+      'petty_cash_transactions',
+      id,
+    );
+    await assertDatesOpen(client, [previousDate, input.date]);
     await lockEmployees(client, [input.employeeId]);
-    const { rowCount } = await client.query(
+    await client.query(
       `UPDATE petty_cash_transactions SET
          employee_id = $2, transaction_date = $3, kind = $4, amount = $5,
          note = $6, remarks = $7, updated_at = now()
@@ -1232,12 +1245,6 @@ export function updatePettyCash(
         input.remarks,
       ],
     );
-    if (!rowCount) {
-      throw new AppError(
-        'NOT_FOUND',
-        'That petty cash entry no longer exists.',
-      );
-    }
     // Only this entry's files, so an id from another entry is ignored.
     await client.query(
       `DELETE FROM petty_cash_attachments
@@ -1249,16 +1256,16 @@ export function updatePettyCash(
   });
 }
 
-export async function deletePettyCash(db: Database, id: string): Promise<void> {
+export function deletePettyCash(db: Database, id: string): Promise<void> {
   assertUuid(id);
-  // Its files are removed by ON DELETE CASCADE in the same statement.
-  const { rowCount } = await db.query(
-    'DELETE FROM petty_cash_transactions WHERE id = $1',
-    [id],
-  );
-  if (!rowCount) {
-    throw new AppError('NOT_FOUND', 'That petty cash entry no longer exists.');
-  }
+  return db.transaction(async (client) => {
+    const date = await lockedRecordDate(client, 'petty_cash_transactions', id);
+    await assertDatesOpen(client, [date]);
+    // Its files are removed by ON DELETE CASCADE in the same statement.
+    await client.query('DELETE FROM petty_cash_transactions WHERE id = $1', [
+      id,
+    ]);
+  });
 }
 
 export async function getPettyCashAttachment(

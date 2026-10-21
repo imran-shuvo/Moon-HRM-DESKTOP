@@ -22,13 +22,48 @@ export const PETTY_CASH_KIND_LABELS: Record<PettyCashKind, string> = {
   received: 'Settled amount',
 };
 
+/** Wording for the two forms: giving cash, and recording a settlement. */
+const FORMS: Record<
+  PettyCashKind,
+  {
+    eyebrow: string;
+    title: string;
+    caption: string;
+    notePlaceholder: string;
+    files: string;
+    dropHint: string;
+    submit: string;
+  }
+> = {
+  given: {
+    eyebrow: 'PETTY CASH GIVEN',
+    title: 'Give petty cash to a worker',
+    caption: 'Adds to the cash the worker holds.',
+    notePlaceholder: 'e.g. For site supplies',
+    files: 'Reference documents',
+    dropHint: 'Drop signed slips or receipts here or click to choose',
+    submit: 'Give cash',
+  },
+  received: {
+    eyebrow: 'SETTLEMENT',
+    title: 'Record a settlement',
+    caption: 'Vouchers and cash the worker hands back; reduces what they hold.',
+    notePlaceholder: 'e.g. Fuel and supplies, vouchers attached',
+    files: 'Vouchers',
+    dropHint: 'Drop vouchers here or click to choose',
+    submit: 'Save settlement',
+  },
+};
+
 /**
- * Records cash given to a worker or an amount they settle, with reference
- * documents. Editing can add files and remove existing ones.
+ * One form for cash given to a worker and another for a settlement they
+ * make, each with its documents. Editing can add files and remove
+ * existing ones.
  */
 export default function PettyCashDialog({
   entry,
-  defaults,
+  kind,
+  defaultEmployeeId,
   employees,
   balances,
   onClose,
@@ -36,7 +71,8 @@ export default function PettyCashDialog({
 }: {
   /** The entry being edited; undefined for a new one. */
   entry: PettyCashTransaction | undefined;
-  defaults: { kind: PettyCashKind; employeeId: string };
+  kind: PettyCashKind;
+  defaultEmployeeId: string;
   employees: Employee[];
   /** Current balances by employee id, including `entry` as saved. */
   balances: Map<string, PettyCashBalance>;
@@ -48,9 +84,9 @@ export default function PettyCashDialog({
   ) => Promise<void>;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
-  const [kind, setKind] = useState<PettyCashKind>(entry?.kind ?? defaults.kind);
+  const form = FORMS[kind];
   const [employeeId, setEmployeeId] = useState(
-    entry?.employeeId ?? defaults.employeeId,
+    entry?.employeeId ?? defaultEmployeeId,
   );
   const [amount, setAmount] = useState(entry ? String(entry.amount) : '');
   const [files, setFiles] = useState<File[]>([]);
@@ -100,7 +136,7 @@ export default function PettyCashDialog({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const values = new FormData(event.currentTarget);
     if (!employeeId) {
       setError('Choose the worker.');
       return;
@@ -117,9 +153,9 @@ export default function PettyCashDialog({
           employeeId,
           kind,
           amount: value,
-          date: String(form.get('date') ?? ''),
-          note: String(form.get('note') ?? '').trim(),
-          remarks: String(form.get('remarks') ?? '').trim(),
+          date: String(values.get('date') ?? ''),
+          note: String(values.get('note') ?? '').trim(),
+          remarks: String(values.get('remarks') ?? '').trim(),
         },
         files,
         removed,
@@ -141,18 +177,10 @@ export default function PettyCashDialog({
         <div className="dialog-heading">
           <div>
             <p className="eyebrow">
-              {entry ? 'EDIT PETTY CASH' : 'NEW PETTY CASH'}
+              {entry ? `EDIT ${form.eyebrow}` : form.eyebrow}
             </p>
-            <h2 id="petty-cash-dialog-title">
-              {kind === 'given'
-                ? 'Give petty cash to a worker'
-                : 'Record settled amount'}
-            </h2>
-            <p>
-              {kind === 'given'
-                ? 'Adds to the cash the worker holds.'
-                : 'Reduces the cash the worker holds.'}
-            </p>
+            <h2 id="petty-cash-dialog-title">{form.title}</h2>
+            <p>{form.caption}</p>
           </div>
           <button
             aria-label="Close dialog"
@@ -166,25 +194,6 @@ export default function PettyCashDialog({
         </div>
         <form onSubmit={handleSubmit}>
           <fieldset className="petty-cash-fields" disabled={saving}>
-            <div
-              aria-label="Kind of entry"
-              className="segmented segmented-large petty-cash-kind"
-              role="radiogroup"
-            >
-              {(['received', 'given'] as const).map((option) => (
-                <button
-                  aria-checked={kind === option}
-                  className={kind === option ? 'active' : undefined}
-                  key={option}
-                  onClick={() => setKind(option)}
-                  role="radio"
-                  type="button"
-                >
-                  {option === 'given' ? '↑ ' : '↓ '}
-                  {PETTY_CASH_KIND_LABELS[option]}
-                </button>
-              ))}
-            </div>
             <div className="form-grid">
               <label className="form-field field-wide" htmlFor="petty-employee">
                 Worker
@@ -233,11 +242,7 @@ export default function PettyCashDialog({
                   id="petty-note"
                   maxLength={300}
                   name="note"
-                  placeholder={
-                    kind === 'given'
-                      ? 'e.g. For site supplies'
-                      : 'e.g. Returned unused cash, receipts attached'
-                  }
+                  placeholder={form.notePlaceholder}
                 />
               </label>
               <label className="form-field field-wide" htmlFor="petty-remarks">
@@ -271,7 +276,7 @@ export default function PettyCashDialog({
               </p>
             )}
 
-            <h3 className="petty-cash-files-heading">Reference documents</h3>
+            <h3 className="petty-cash-files-heading">{form.files}</h3>
             {keptAttachments.length + removed.length > 0 && (
               <ul aria-label="Attached files" className="upload-list">
                 {(entry?.attachments ?? []).map((attachment) => {
@@ -307,7 +312,7 @@ export default function PettyCashDialog({
               </ul>
             )}
             <input
-              aria-label="Choose reference documents"
+              aria-label={`Choose ${form.files.toLowerCase()}`}
               className="visually-hidden"
               multiple
               onChange={(event) => {
@@ -329,7 +334,7 @@ export default function PettyCashDialog({
               type="button"
             >
               <span aria-hidden="true">⇪</span>
-              <strong>Drop receipts here or click to choose</strong>
+              <strong>{form.dropHint}</strong>
               <small>
                 Photos, PDFs or scans · up to{' '}
                 {MAX_ATTACHMENT_BYTES / 1024 / 1024} MB each
@@ -380,9 +385,7 @@ export default function PettyCashDialog({
             >
               {saving && 'Saving…'}
               {!saving && entry && 'Save changes'}
-              {!saving &&
-                !entry &&
-                (kind === 'given' ? 'Give cash' : 'Save settled amount')}
+              {!saving && !entry && form.submit}
             </button>
           </div>
         </form>

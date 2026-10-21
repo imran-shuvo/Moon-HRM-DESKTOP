@@ -548,6 +548,7 @@ export default function createMemoryApi(
     pettyCash: {
       create: async (rawInput, rawFiles) => {
         const input = validatePettyCashInput(rawInput);
+        assertOpen(input.date);
         findEmployee(input.employeeId);
         const entry = {
           id: newId(),
@@ -570,6 +571,7 @@ export default function createMemoryApi(
             'That petty cash entry no longer exists.',
           );
         }
+        assertOpen(previous.date, input.date);
         const kept = previous.attachments.filter(
           (attachment) => !removeIds.includes(attachment.id),
         );
@@ -593,6 +595,7 @@ export default function createMemoryApi(
             'That petty cash entry no longer exists.',
           );
         }
+        assertOpen(entry.date);
         entry.attachments.forEach((attachment) => files.delete(attachment.id));
         state.pettyCash = state.pettyCash.filter((item) => item.id !== id);
       },
