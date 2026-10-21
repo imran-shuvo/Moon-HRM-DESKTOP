@@ -567,6 +567,9 @@ h1 { margin-bottom: 5px; font: 700 25px var(--font-ui); letter-spacing: -.8px; }
     .moon-report-table tr, .moon-report-summary { break-inside: avoid; }
     .moon-report-section h2 { break-after: avoid; }
     .moon-report-table thead { display: table-header-group; }
+    /* Totals print once, after the last row, not at the foot of every page. */
+    tfoot { display: table-row-group; }
+    tfoot tr { break-inside: avoid; }
     .sidebar, .topbar, .page-heading, .page-footer, .report-controls,
     .table-action {
       display: none !important;
