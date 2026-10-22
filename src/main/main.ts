@@ -25,32 +25,48 @@ let mainWindow: BrowserWindow | null = null;
 
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
 
+/** The app's former names, newest first; each kept its own app-data folder. */
+const FORMER_NAMES = ['Moon Finance', 'Inventory'];
+
 /**
- * Installed builds were called "Inventory" before the app was renamed, and
- * kept their settings in that app-data folder. Copy them once, so the
- * database connection and backup settings carry over; the old file stays.
- * (A password locked to the old app's keychain entry is asked for again.)
+ * Installed builds were called "Moon Finance", and before that "Inventory",
+ * and kept their settings in that app-data folder. Copy the newest ones
+ * once, so the database connection and backup settings carry over; the old
+ * file stays. (A password locked to the old app's keychain entry is asked
+ * for again.)
  */
 function adoptSettingsFromBeforeRename() {
-  const legacy = path.join(
-    app.getPath('appData'),
-    'Inventory',
-    'settings.json',
+  if (fs.existsSync(settingsPath)) return;
+  const name = FORMER_NAMES.find((former) =>
+    fs.existsSync(path.join(app.getPath('appData'), former, 'settings.json')),
   );
-  if (legacy === settingsPath || fs.existsSync(settingsPath)) return;
-  if (!fs.existsSync(legacy)) return;
+  if (!name) return;
+  const legacy = path.join(app.getPath('appData'), name, 'settings.json');
+  if (legacy === settingsPath) return;
   try {
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
     fs.copyFileSync(legacy, settingsPath);
-    log.info('Copied settings from the app\'s former "Inventory" folder.');
+    log.info(`Copied settings from the app's former "${name}" folder.`);
   } catch (error) {
     log.error(
-      'Could not copy settings from the former "Inventory" folder.',
+      `Could not copy settings from the former "${name}" folder.`,
       error,
     );
   }
 }
 adoptSettingsFromBeforeRename();
+
+/**
+ * Backups go to Documents/Moon HRM Backups, unless the folder from when the
+ * app was called Moon Finance exists and the new one does not yet: then
+ * backups stay where they already are.
+ */
+function defaultBackupDirectory() {
+  const documents = app.getPath('documents');
+  const current = path.join(documents, 'Moon HRM Backups');
+  const former = path.join(documents, 'Moon Finance Backups');
+  return !fs.existsSync(current) && fs.existsSync(former) ? former : current;
+}
 
 const settingsStore = new SettingsStore(settingsPath, {
   isAvailable: () => safeStorage.isEncryptionAvailable(),
@@ -64,7 +80,7 @@ const backupService = new BackupService({
   getDb: () => connection.getDb(),
   store: settingsStore,
   appVersion: app.getVersion(),
-  defaultDirectory: path.join(app.getPath('documents'), 'Moon Finance Backups'),
+  defaultDirectory: defaultBackupDirectory(),
   log: (message, error) =>
     error ? log.error(message, error) : log.info(message),
 });

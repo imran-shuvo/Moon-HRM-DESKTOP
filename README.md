@@ -1,4 +1,4 @@
-# Moon Finance
+# Moon HRM
 
 Desktop finance app for **Moon Trading Contracting & Cleaning**. It records
 company expenses with VAT and receipt files, tracks budget payments received,
@@ -260,13 +260,15 @@ npm run package
 | Windows | NSIS `Setup .exe` installer |
 | Linux | `.AppImage` |
 
-- The installed app is named **Moon Finance** (`build.productName` in
+- The installed app is named **Moon HRM** (`build.productName` in
   `package.json`). Its version comes from `version` in
   `release/app/package.json`; raise it before building a new release.
-- Builds before version 4.7.0 were called **Inventory**. Moon Finance
-  installs as a separate app: uninstall Inventory afterwards. On first start
-  it copies Inventory's connection and backup settings; on macOS you may be
-  asked for the database password once.
+- Builds up to version 4.8.0 were called **Moon Finance**, and builds
+  before 4.7.0 **Inventory**. Moon HRM installs as a separate app: delete
+  the old one afterwards. On first start it copies the old app's connection
+  and backup settings; on macOS you may be asked for the database password
+  once. If backups were kept in `Documents/Moon Finance Backups`, they stay
+  there.
 - The installed app connects to PostgreSQL the same way as in development:
   on first start it asks for the server, database, user and password.
   PostgreSQL is not bundled, so every computer needs network access to the

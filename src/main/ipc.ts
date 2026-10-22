@@ -115,7 +115,7 @@ function safeFileName(name: string) {
 }
 
 const BACKUP_FILTERS = [
-  { name: 'Moon Finance backup', extensions: [BACKUP_EXTENSION.slice(1)] },
+  { name: 'Moon HRM backup', extensions: [BACKUP_EXTENSION.slice(1)] },
 ];
 
 export default function registerIpcHandlers({

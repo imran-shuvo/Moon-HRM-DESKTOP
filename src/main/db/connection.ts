@@ -13,7 +13,7 @@ function toPoolConfig(settings: DatabaseConnectionSettings): PoolConfig {
     user: settings.user,
     password: settings.password,
     ssl: settings.ssl ? { rejectUnauthorized: true } : undefined,
-    application_name: 'Moon Finance',
+    application_name: 'Moon HRM',
   };
 }
 

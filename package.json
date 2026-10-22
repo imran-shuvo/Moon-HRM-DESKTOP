@@ -1,6 +1,6 @@
 {
   "name": "moon-finance",
-  "description": "Moon Finance: expense, budget and report management for Moon Trading Contracting & Cleaning, backed by PostgreSQL.",
+  "description": "Moon HRM: expenses, budgets, petty cash, payroll and reports for Moon Trading Contracting & Cleaning, backed by PostgreSQL.",
   "keywords": [
     "finance",
     "expenses",
@@ -164,7 +164,7 @@
     "webpack-merge": "^5.9.0"
   },
   "build": {
-    "productName": "Moon Finance",
+    "productName": "Moon HRM",
     "appId": "com.moontrading.moonfinance",
     "afterPack": ".erb/scripts/adhoc-sign.js",
     "afterSign": ".erb/scripts/notarize.js",

@@ -1,6 +1,6 @@
 # Database & backups
 
-Moon Finance keeps all expenses, budget payments, types, departments and
+Moon HRM keeps all expenses, budget payments, types, departments and
 receipt files in **PostgreSQL 13 or newer**. The app creates and upgrades its
 own tables; you only need an empty database and a user.
 
@@ -61,7 +61,9 @@ onto a new server.
 | **Manual** | **Back up now** saves to the backup folder. **Save backup as…** lets you choose the location, such as a USB drive. Manual backups are never deleted automatically. |
 | **Before restore** | Made automatically just before every restore, so you can undo a restore. |
 
-The default folder is `Documents/Moon Finance Backups`. **Point it at a synced
+The default folder is `Documents/Moon HRM Backups` (or `Documents/Moon
+Finance Backups`, if that folder already exists from when the app was called
+Moon Finance). **Point it at a synced
 or network folder** (OneDrive, Google Drive, a NAS) with **Change folder**. A
 backup kept only on the same computer is lost if that computer is lost.
 
