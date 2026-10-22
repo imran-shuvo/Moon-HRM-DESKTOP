@@ -3,6 +3,9 @@ import type {
   Employee,
   Expense,
   PettyCashTransaction,
+  PettyCashVoucher,
+  PettyCashVoucherInput,
+  VoucherSection,
 } from '../../shared/types';
 
 export type Section =
@@ -10,6 +13,7 @@ export type Section =
   | 'Transactions'
   | 'Budgets'
   | 'Petty Cash'
+  | 'Vouchers'
   | 'Employees'
   | 'Attendance'
   | 'Payroll'
@@ -21,11 +25,14 @@ export type Section =
 /** Petty cash's pages: cash given, settlements, and what workers hold. */
 export type PettyCashSection = 'given' | 'received' | 'balances';
 
-export const PETTY_CASH_SECTIONS: {
-  id: PettyCashSection;
+/** A page listed under its section in the sidebar. */
+export type SubPage<T extends string> = {
+  id: T;
   label: string;
   subtitle: string;
-}[] = [
+};
+
+export const PETTY_CASH_SECTIONS: SubPage<PettyCashSection>[] = [
   {
     id: 'given',
     label: 'Petty cash given',
@@ -41,6 +48,24 @@ export const PETTY_CASH_SECTIONS: {
     label: 'Cash in hand',
     subtitle:
       'What each worker holds: carried in, given and settled this month. It carries into the next month.',
+  },
+];
+
+/** The Vouchers section's pages. */
+export type VoucherPage = 'vouchers' | 'new-voucher';
+
+export const VOUCHER_PAGES: SubPage<VoucherPage>[] = [
+  {
+    id: 'vouchers',
+    label: 'Voucher list',
+    subtitle:
+      'Every petty cash voucher. Open one to see its details, print, edit or delete it.',
+  },
+  {
+    id: 'new-voucher',
+    label: 'Create voucher',
+    subtitle:
+      "An employee's petty cash voucher: the cash they received and every bill paid from it.",
   },
 ];
 
@@ -61,7 +86,12 @@ export type {
   Payslip,
   PettyCashKind,
   PettyCashTransaction,
+  PettyCashVoucher,
+  PettyCashVoucherInput,
   SalaryAdvance,
+  VoucherLine,
+  VoucherReceipt,
+  VoucherSection,
 } from '../../shared/types';
 
 /** Labels for a filter whose options are the values themselves. */
@@ -457,4 +487,51 @@ export function pettyCashRunningBalances(entries: PettyCashTransaction[]) {
     after.set(entry.id, cents / 100);
   });
   return after;
+}
+
+/** What a voucher received and spent, its line count, and what is left. */
+export function voucherTotals(
+  voucher: Pick<PettyCashVoucherInput, 'receipts' | 'sections'>,
+) {
+  const lines = voucher.sections.flatMap((section) => section.lines);
+  const received = voucher.receipts.reduce(
+    (total, receipt) => total + toCents(receipt.amount),
+    0,
+  );
+  const spent = lines.reduce((total, line) => total + toCents(line.amount), 0);
+  return {
+    lines: lines.length,
+    received: received / 100,
+    spent: spent / 100,
+    balance: (received - spent) / 100,
+  };
+}
+
+/** The total of one section's bills. */
+export function voucherSectionTotal(section: VoucherSection) {
+  return (
+    section.lines.reduce((total, line) => total + toCents(line.amount), 0) / 100
+  );
+}
+
+/** e.g. '2026-10-10' → '10-10-26', as bills are dated on a voucher. */
+export function formatVoucherLineDate(date: string) {
+  if (!date) return '';
+  const [year, month, day] = date.split('-');
+  return `${day}-${month}-${year.slice(2)}`;
+}
+
+/** e.g. '2026-10-15' → '15/10/2026'. */
+export function formatVoucherDate(date: string) {
+  const [year, month, day] = date.split('-');
+  return `${day}/${month}/${year}`;
+}
+
+/** The next free reference, e.g. 'MOON/PCV/2026-004'. */
+export function nextVoucherRefNo(vouchers: PettyCashVoucher[], date: string) {
+  const prefix = `MOON/PCV/${date.slice(0, 4)}-`;
+  const taken = new Set(vouchers.map((voucher) => voucher.refNo));
+  let number = vouchers.filter((v) => v.refNo.startsWith(prefix)).length + 1;
+  while (taken.has(`${prefix}${String(number).padStart(3, '0')}`)) number += 1;
+  return `${prefix}${String(number).padStart(3, '0')}`;
 }

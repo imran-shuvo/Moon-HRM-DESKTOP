@@ -85,6 +85,15 @@ Built with Electron, React and TypeScript.
   the rest of the books. Each section can be filtered, previewed and saved
   as a PDF; **Statement** prints one worker's month. A worker with petty
   cash on record cannot be deleted.
+- **Vouchers**: its own section, with a **Voucher list** and a **Create
+  voucher** page. A voucher has a voucher no., the employee and a date;
+  each amount the employee received (date, from whom, amount) with their
+  total; then each bill in titled sections (date, particulars, supplier,
+  VAT no., invoice no., amounts excluding and including VAT) with a
+  subtotal per section; the balance left; and who created, verified and
+  approved it. Open a voucher from the list to see it, print it as an A4
+  landscape PDF, edit or delete it. An employee with vouchers cannot be
+  deleted.
 - **Types and departments**: chosen from dropdowns when adding an expense;
   a new one can be typed there and is saved for next time.
 - **Backup & restore**: automatic and manual backups to a single

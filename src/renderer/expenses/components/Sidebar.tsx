@@ -3,6 +3,9 @@ import {
   PETTY_CASH_SECTIONS,
   PettyCashSection,
   Section,
+  SubPage,
+  VOUCHER_PAGES,
+  VoucherPage,
   formatCurrency,
 } from '../model';
 
@@ -17,6 +20,7 @@ const NAVIGATION: {
       { label: 'Transactions', icon: '↕' },
       { label: 'Budgets', icon: '▥' },
       { label: 'Petty Cash', icon: '◈' },
+      { label: 'Vouchers', icon: '🧾' },
       { label: 'Reports', icon: '▤' },
     ],
   },
@@ -38,11 +42,32 @@ const NAVIGATION: {
   },
 ];
 
+/** A section's pages, listed under it while it is open. */
+function subPages<T extends string>(
+  pages: SubPage<T>[],
+  current: T,
+  onSelect: (page: T) => void,
+) {
+  return pages.map((page) => (
+    <button
+      aria-current={current === page.id ? 'page' : undefined}
+      className={`nav-item nav-subitem${current === page.id ? ' active' : ''}`}
+      key={page.id}
+      onClick={() => onSelect(page.id)}
+      type="button"
+    >
+      {page.label}
+    </button>
+  ));
+}
+
 export default function Sidebar({
   section,
   onSelect,
   pettyCashSection,
   onSelectPettyCash,
+  voucherPage,
+  onSelectVoucherPage,
   budget,
   transactionCount,
   unpaidPayslipCount,
@@ -53,6 +78,9 @@ export default function Sidebar({
   /** The open Petty Cash page; its pages are listed under Petty Cash. */
   pettyCashSection: PettyCashSection;
   onSelectPettyCash: (page: PettyCashSection) => void;
+  /** The open Vouchers page; its pages are listed under Vouchers. */
+  voucherPage: VoucherPage;
+  onSelectVoucherPage: (page: VoucherPage) => void;
   budget: number;
   transactionCount: number;
   unpaidPayslipCount: number;
@@ -103,19 +131,14 @@ export default function Sidebar({
               </button>,
               item.label === 'Petty Cash' &&
                 section === 'Petty Cash' &&
-                PETTY_CASH_SECTIONS.map((page) => (
-                  <button
-                    aria-current={
-                      pettyCashSection === page.id ? 'page' : undefined
-                    }
-                    className={`nav-item nav-subitem${pettyCashSection === page.id ? ' active' : ''}`}
-                    key={page.id}
-                    onClick={() => onSelectPettyCash(page.id)}
-                    type="button"
-                  >
-                    {page.label}
-                  </button>
-                )),
+                subPages(
+                  PETTY_CASH_SECTIONS,
+                  pettyCashSection,
+                  onSelectPettyCash,
+                ),
+              item.label === 'Vouchers' &&
+                section === 'Vouchers' &&
+                subPages(VOUCHER_PAGES, voucherPage, onSelectVoucherPage),
             ])}
           </div>
         ))}

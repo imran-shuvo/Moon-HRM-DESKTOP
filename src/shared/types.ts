@@ -151,6 +151,55 @@ export type PettyCashInput = Pick<
   'employeeId' | 'date' | 'kind' | 'amount' | 'note' | 'remarks'
 >;
 
+/** One bill or payment on a petty cash voucher. */
+export type VoucherLine = {
+  /** The bill's date, 'YYYY-MM-DD', or '' when it has none. */
+  date: string;
+  particulars: string;
+  supplier: string;
+  vatNo: string;
+  invoiceNo: string;
+  /** Optional VAT breakdown of `amount`. */
+  amountExclVat: number | null;
+  vatAmount: number | null;
+  /** What was paid, including VAT. */
+  amount: number;
+};
+
+/** A titled group of lines, e.g. a project or "Materials & other expenses". */
+export type VoucherSection = { title: string; lines: VoucherLine[] };
+
+/** Cash the employee received for the voucher, e.g. 3,000 from Imran. */
+export type VoucherReceipt = {
+  date: string;
+  receivedFrom: string;
+  amount: number;
+};
+
+/**
+ * A petty cash voucher: the cash an employee received, then every bill
+ * they paid from it, in sections. What is left is received minus spent.
+ */
+export type PettyCashVoucher = {
+  id: string;
+  /** The voucher no., e.g. 'MOON/PCV/2026-001' */
+  refNo: string;
+  date: string;
+  /** The employee who received the cash; null on vouchers made before. */
+  employeeId: string | null;
+  receipts: VoucherReceipt[];
+  sections: VoucherSection[];
+  createdBy: string;
+  verifiedBy: string;
+  approvedBy: string;
+  createdAt: number;
+};
+
+export type PettyCashVoucherInput = Omit<
+  PettyCashVoucher,
+  'id' | 'createdAt' | 'employeeId'
+> & { employeeId: string };
+
 export type PayslipStatus = 'unpaid' | 'paid';
 
 /**
@@ -286,6 +335,7 @@ export type FinanceSnapshot = {
   /** Uploaded documents, without their file contents. */
   documents: DocumentRecord[];
   pettyCash: PettyCashTransaction[];
+  pettyCashVouchers: PettyCashVoucher[];
 };
 
 /** Data saved in localStorage/IndexedDB by the pre-database version of the app. */
@@ -335,6 +385,7 @@ export type BackupCounts = {
   documents: number;
   pettyCash: number;
   pettyCashAttachments: number;
+  pettyCashVouchers: number;
 };
 
 export type BackupFileInfo = {
@@ -457,6 +508,14 @@ export type FinanceApi = {
     remove: (id: string) => Promise<void>;
     /** Opens the file in the operating system's default viewer. */
     openAttachment: (id: string) => Promise<void>;
+  };
+  vouchers: {
+    create: (input: PettyCashVoucherInput) => Promise<PettyCashVoucher>;
+    update: (
+      id: string,
+      input: PettyCashVoucherInput,
+    ) => Promise<PettyCashVoucher>;
+    remove: (id: string) => Promise<void>;
   };
   payroll: {
     updateSettings: (settings: PayrollSettings) => Promise<PayrollSettings>;

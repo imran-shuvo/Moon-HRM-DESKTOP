@@ -25,6 +25,7 @@ import {
   validatePayrollSettings,
   validatePayslipInputs,
   validatePettyCashInput,
+  validateVoucherInput,
   validateAttachmentIds,
   validateSalaryAdvanceInput,
   validateSalaryAdvanceInputs,
@@ -113,6 +114,7 @@ export default function createMemoryApi(
     payrollSettings: { ...(seed.payrollSettings ?? DEFAULT_PAYROLL_SETTINGS) },
     documents: [...(seed.documents ?? [])],
     pettyCash: [...(seed.pettyCash ?? [])],
+    pettyCashVouchers: [...(seed.pettyCashVouchers ?? [])],
   };
   const documentFiles = new Map<string, AttachmentUpload>();
   const findEmployee = (id: string) => {
@@ -319,7 +321,9 @@ export default function createMemoryApi(
           attendance: attendance.some((entry) => entry.employeeId === id),
           advances: state.salaryAdvances.some((item) => item.employeeId === id),
           payslips: state.payslips.some((item) => item.employeeId === id),
-          pettyCash: state.pettyCash.some((item) => item.employeeId === id),
+          pettyCash:
+            state.pettyCash.some((item) => item.employeeId === id) ||
+            state.pettyCashVouchers.some((item) => item.employeeId === id),
         });
         state.employees = state.employees.filter((item) => item.id !== id);
       },
@@ -600,6 +604,38 @@ export default function createMemoryApi(
         state.pettyCash = state.pettyCash.filter((item) => item.id !== id);
       },
       openAttachment: async () => undefined,
+    },
+    vouchers: {
+      create: async (rawInput) => {
+        const input = validateVoucherInput(rawInput);
+        findEmployee(input.employeeId);
+        const voucher = { id: newId(), ...input, createdAt: Date.now() };
+        state.pettyCashVouchers = [voucher, ...state.pettyCashVouchers];
+        return clone(voucher);
+      },
+      update: async (rawId, rawInput) => {
+        const id = recordId(rawId);
+        const previous = state.pettyCashVouchers.find((item) => item.id === id);
+        if (!previous) {
+          throw new AppError('NOT_FOUND', 'That voucher no longer exists.');
+        }
+        const input = validateVoucherInput(rawInput);
+        findEmployee(input.employeeId);
+        const voucher = { ...previous, ...input };
+        state.pettyCashVouchers = state.pettyCashVouchers.map((item) =>
+          item.id === id ? voucher : item,
+        );
+        return clone(voucher);
+      },
+      remove: async (rawId) => {
+        const id = recordId(rawId);
+        if (!state.pettyCashVouchers.some((item) => item.id === id)) {
+          throw new AppError('NOT_FOUND', 'That voucher no longer exists.');
+        }
+        state.pettyCashVouchers = state.pettyCashVouchers.filter(
+          (item) => item.id !== id,
+        );
+      },
     },
     payroll: {
       updateSettings: async (rawSettings) => {

@@ -560,6 +560,9 @@ h1 { margin-bottom: 5px; font: 700 25px var(--font-ui); letter-spacing: -.8px; }
 
   @media print {
     @page { size: A4 portrait; }
+    /* Reports printed with `landscape` use a landscape page. */
+    @page landscape { size: A4 landscape; }
+    .landscape-report { page: landscape; }
     :root, body { min-width: 0; background: #fff !important; }
     .app-shell { display: none !important; }
     .standalone-print-report { display: block !important; }
@@ -1245,3 +1248,114 @@ th.sheet-total.status-vacation, th.sheet-total.status-holiday { color: var(--sta
 .moon-report .petty-remarks { white-space: pre-line; }
 .moon-report .petty-remarks-text { display: block; margin-top: 2px; color: #666; font-style: italic; }
 .moon-report .petty-documents { color: #555; font-size: 7.5pt; overflow-wrap: anywhere; }
+
+/* Petty cash vouchers */
+.voucher-list .clickable-row { cursor: pointer; }
+.voucher-list .clickable-row:hover td { background: #faf9ff; }
+.link-button { border: 0; padding: 0; color: #4c4296; background: transparent; font: inherit; font-weight: 700; text-align: left; cursor: pointer; }
+.link-button:hover { text-decoration: underline; }
+.voucher-list-detail { display: block; margin-top: 2px; color: #8a8b98; font-size: 11px; }
+.voucher-negative, .voucher-negative b { color: #b2333e; }
+.voucher-signoff-status { font-size: 15px !important; letter-spacing: 0 !important; }
+.voucher-sheet { margin-top: 14px; border-radius: 10px; padding: 18px; background: #f3f3f7; }
+
+.voucher-editor { display: grid; gap: 6px; }
+.voucher-editor-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.voucher-editor-heading h2 { margin: 2px 0 0; color: #292a39; font-size: 17px; }
+.voucher-fields { min-width: 0; margin: 0; border: 0; padding: 0; }
+.voucher-fields > h3, .voucher-card h3 { margin: 0 0 12px; color: #343543; font: 700 12px var(--font-ui); }
+.voucher-fields > h3.voucher-sections-heading { margin: 22px 0 10px; }
+.voucher-card { margin-top: 14px; border: 1px solid #ecebf2; border-radius: 10px; padding: 14px 16px; background: #fff; }
+.voucher-card .voucher-lines { min-width: 560px; }
+.voucher-card > .button { margin-top: 8px; }
+.voucher-card-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.voucher-card-total { color: #5a5b6b; font-size: 12px; }
+.voucher-card-total b { margin-left: 6px; color: #1d7550; font-size: 14px; }
+.voucher-receipt-lines tfoot td { padding: 8px 4px 0; color: #22232f; font-weight: 700; }
+.voucher-receipt-lines tfoot td:first-child { text-align: right; }
+.voucher-receipt-lines tfoot .col-amount { text-align: right; }
+.voucher-section-editor { display: grid; gap: 10px; margin-bottom: 14px; border: 1px solid #ecebf2; border-left: 4px solid #f39200; border-radius: 10px; padding: 14px; background: #fffdf9; }
+.voucher-section-heading { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.voucher-section-heading .form-field { flex: 1; min-width: 240px; }
+.voucher-section-total { padding-bottom: 9px; color: #22232f; font-weight: 700; }
+.voucher-lines { width: 100%; min-width: 1050px; border-collapse: collapse; }
+.voucher-lines th { padding: 6px 4px; color: #7d7e8c; font-size: 10px; font-weight: 700; text-align: left; text-transform: uppercase; }
+.voucher-lines td { padding: 3px 4px; }
+.voucher-lines input { width: 100%; height: 32px; border: 1px solid #e7e7ec; border-radius: 6px; outline: 0; padding: 0 7px; color: #373846; background: #fff; font-size: 11px; }
+.voucher-lines input:focus { border-color: #8a80e2; box-shadow: 0 0 0 2px #8276df1c; }
+.voucher-lines .col-sl { width: 28px; color: #9a9ba7; text-align: center; }
+.voucher-lines .col-date { width: 128px; }
+.voucher-lines .col-short { width: 100px; }
+.voucher-lines .col-amount { width: 104px; }
+.voucher-lines .col-amount input { text-align: right; }
+.voucher-lines .text-button { font-size: 16px; }
+.voucher-editor-totals { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 22px; margin-top: 10px; border-radius: 8px; padding: 12px 16px; color: #5a5b6b; background: #f6f4fe; font-size: 12px; }
+.voucher-editor-totals b { margin-left: 6px; color: #22232f; font-size: 14px; }
+
+/* Printed voucher (A4 landscape), with the company report header */
+.voucher-report .voucher-details { margin-top: 24px; }
+.voucher-report .voucher-details th { width: 33.3%; }
+.voucher-report .voucher-details td { padding: 9px 10px; vertical-align: top; }
+.voucher-report .voucher-detail-strong { color: var(--moon-ink); font-weight: 700; }
+/* Cash received, expenses and summary each stand apart under their own heading. */
+.voucher-report .moon-report-section { margin-top: 42px; }
+.voucher-report .moon-report-section h2 {
+  display: flex; align-items: baseline; gap: 10px; margin: 0 0 14px;
+  border-bottom: 2px solid var(--moon-orange-soft); padding-bottom: 8px;
+  font-size: 12.5pt; letter-spacing: .3px;
+}
+.voucher-report .moon-report-section h2::before {
+  content: ''; flex: none; width: 5px; height: 15px; align-self: center;
+  border-radius: 2px; background: var(--moon-orange);
+}
+.voucher-receipts { width: 70%; }
+.voucher-receipts th:nth-child(1) { width: 9%; }
+.voucher-receipts th:nth-child(2) { width: 18%; }
+.voucher-receipts th:nth-child(4) { width: 22%; }
+.voucher-table th, .voucher-table td { padding: 5px 6px; font-size: 8pt; }
+.voucher-table thead th { white-space: normal; }
+.voucher-table th:nth-child(1) { width: 5%; }
+.voucher-table th:nth-child(2) { width: 9.5%; }
+.voucher-table th:nth-child(3) { width: 16%; }
+.voucher-table th:nth-child(4) { width: 20%; }
+.voucher-table th:nth-child(5), .voucher-table th:nth-child(6) { width: 9%; }
+.voucher-table th:nth-child(7), .voucher-table th:nth-child(8), .voucher-table th:nth-child(9) { width: 10.5%; }
+.voucher-table tbody td:nth-child(2) { white-space: nowrap; }
+/* Each section: a coloured band with its number, title and line count, then a subtotal. */
+.voucher-table .voucher-section-title td {
+  border-top: 2px solid var(--moon-orange); border-bottom: 0; padding: 7px 10px;
+  background: linear-gradient(90deg, var(--moon-orange-soft), #fff 85%);
+  box-shadow: inset 4px 0 0 var(--moon-orange);
+}
+.voucher-section-number {
+  display: inline-block; margin-right: 10px; border-radius: 3px; padding: 1px 6px;
+  color: #fff; background: var(--moon-orange); font-size: 6.5pt; font-weight: 700; letter-spacing: .8px;
+}
+.voucher-section-name { color: var(--moon-ink); font-size: 9pt; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+.voucher-section-count { float: right; color: var(--moon-muted); font-size: 7.5pt; font-style: italic; }
+.voucher-table .voucher-section-subtotal td {
+  border-top: 1px solid #c9c9c9; border-bottom: 2px solid #ececec; background: #f7f7f7;
+  color: var(--moon-ink); font-weight: 700;
+}
+.voucher-table .voucher-section-subtotal td:first-child { color: var(--moon-muted); font-style: italic; text-align: right; }
+.voucher-table tbody.voucher-section + tbody.voucher-section .voucher-section-title td { border-top-width: 3px; }
+.voucher-closing { break-inside: avoid; }
+.voucher-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.voucher-summary-tile {
+  display: grid; gap: 5px; border: 1px solid var(--moon-rule); border-radius: 6px;
+  padding: 14px 18px; background: #fafafa;
+}
+.voucher-summary-tile span { color: var(--moon-muted); font-size: 8.5pt; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+.voucher-summary-tile strong { color: var(--moon-ink); font-size: 17pt; font-weight: 700; }
+.voucher-summary-tile small { color: var(--moon-muted); font-size: 8pt; }
+.voucher-summary-balance { border-color: #f5c98a; background: var(--moon-orange-soft); box-shadow: inset 4px 0 0 var(--moon-orange); }
+.voucher-summary-balance.negative { border-color: #efb4ad; background: #fdf0ee; box-shadow: inset 4px 0 0 #c2483d; }
+.voucher-summary-balance.negative strong { color: #c2483d; }
+.voucher-report .voucher-signoff { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; margin-top: 30px; border: 1px solid var(--moon-rule); border-top: 2px solid var(--moon-orange); padding: 16px 30px 12px; font-size: 9pt; break-inside: avoid; }
+.voucher-report .voucher-signoff > div { display: grid; gap: 4px; justify-items: center; text-align: center; }
+.voucher-report .voucher-signoff strong { color: var(--moon-ink); }
+.voucher-report .voucher-signature { width: 80%; height: 26px; border-bottom: 1px solid #777; }
+@media print {
+  .voucher-table .voucher-section-title { break-after: avoid; }
+  .voucher-table .voucher-section-subtotal { break-before: avoid; }
+}

@@ -21,6 +21,10 @@ import {
   PayslipInput,
   PettyCashInput,
   PettyCashTransaction,
+  PettyCashVoucher,
+  PettyCashVoucherInput,
+  VoucherReceipt,
+  VoucherSection,
   SalaryAdvance,
   SalaryAdvanceInput,
 } from '../../shared/types';
@@ -108,6 +112,19 @@ type PettyCashRow = {
   amount: number;
   note: string;
   remarks: string;
+  created_at: Date;
+};
+
+type VoucherRow = {
+  id: string;
+  ref_no: string;
+  voucher_date: string;
+  employee_id: string | null;
+  receipts: VoucherReceipt[];
+  sections: VoucherSection[];
+  created_by: string;
+  verified_by: string;
+  approved_by: string;
   created_at: Date;
 };
 
@@ -224,6 +241,10 @@ const ADVANCE_COLUMNS =
 
 const PETTY_CASH_COLUMNS =
   'id, employee_id, transaction_date, kind, amount, note, remarks, created_at';
+
+const VOUCHER_COLUMNS = `
+  id, ref_no, voucher_date, employee_id, receipts, sections, created_by,
+  verified_by, approved_by, created_at`;
 
 const PETTY_CASH_ATTACHMENT_COLUMNS =
   'id, transaction_id, file_name, mime_type, size_bytes';
@@ -352,6 +373,21 @@ function toPettyCash(
     note: row.note,
     remarks: row.remarks,
     attachments,
+    createdAt: row.created_at.getTime(),
+  };
+}
+
+function toVoucher(row: VoucherRow): PettyCashVoucher {
+  return {
+    id: row.id,
+    refNo: row.ref_no,
+    date: row.voucher_date,
+    employeeId: row.employee_id,
+    receipts: row.receipts,
+    sections: row.sections,
+    createdBy: row.created_by,
+    verifiedBy: row.verified_by,
+    approvedBy: row.approved_by,
     createdAt: row.created_at.getTime(),
   };
 }
@@ -622,6 +658,10 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
         `SELECT ${PETTY_CASH_ATTACHMENT_COLUMNS} FROM petty_cash_attachments
          ORDER BY created_at, file_name`,
       );
+      const vouchers = await client.query<VoucherRow>(
+        `SELECT ${VOUCHER_COLUMNS} FROM petty_cash_vouchers
+         ORDER BY voucher_date DESC, created_at DESC`,
+      );
       const attachmentsByExpense = new Map<string, ExpenseAttachment[]>();
       attachments.rows.forEach((row) => {
         const list = attachmentsByExpense.get(row.expense_id) ?? [];
@@ -650,6 +690,7 @@ export async function loadSnapshot(db: Database): Promise<FinanceSnapshot> {
         pettyCash: pettyCash.rows.map((row) =>
           toPettyCash(row, attachmentsByPettyCash.get(row.id) ?? []),
         ),
+        pettyCashVouchers: vouchers.rows.map(toVoucher),
       };
     },
     { isolation: 'REPEATABLE READ' },
@@ -920,6 +961,7 @@ export function deleteEmployee(db: Database, id: string): Promise<void> {
          EXISTS (SELECT 1 FROM salary_advances WHERE employee_id = $1) AS advances,
          EXISTS (SELECT 1 FROM payslips WHERE employee_id = $1) AS payslips,
          EXISTS (SELECT 1 FROM petty_cash_transactions WHERE employee_id = $1)
+           OR EXISTS (SELECT 1 FROM petty_cash_vouchers WHERE employee_id = $1)
            AS petty_cash
        FROM employees WHERE id = $1 FOR UPDATE`,
       [id],
@@ -1658,4 +1700,70 @@ export function importLegacyData(
       attachments: attachmentCount,
     };
   });
+}
+
+function voucherParams(input: PettyCashVoucherInput) {
+  return [
+    input.refNo,
+    input.date,
+    input.employeeId,
+    JSON.stringify(input.receipts),
+    JSON.stringify(input.sections),
+    input.createdBy,
+    input.verifiedBy,
+    input.approvedBy,
+  ];
+}
+
+export async function createVoucher(
+  db: Database,
+  input: PettyCashVoucherInput,
+): Promise<PettyCashVoucher> {
+  return db.transaction(async (client) => {
+    await lockEmployees(client, [input.employeeId]);
+    const { rows } = await client.query<VoucherRow>(
+      `INSERT INTO petty_cash_vouchers
+         (ref_no, voucher_date, employee_id, receipts, sections, created_by,
+          verified_by, approved_by)
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)
+       RETURNING ${VOUCHER_COLUMNS}`,
+      voucherParams(input),
+    );
+    return toVoucher(rows[0]);
+  });
+}
+
+export async function updateVoucher(
+  db: Database,
+  id: string,
+  input: PettyCashVoucherInput,
+): Promise<PettyCashVoucher> {
+  assertUuid(id);
+  return db.transaction(async (client) => {
+    await lockEmployees(client, [input.employeeId]);
+    const { rows } = await client.query<VoucherRow>(
+      `UPDATE petty_cash_vouchers SET
+         ref_no = $2, voucher_date = $3, employee_id = $4,
+         receipts = $5::jsonb, sections = $6::jsonb, created_by = $7,
+         verified_by = $8, approved_by = $9, updated_at = now()
+       WHERE id = $1
+       RETURNING ${VOUCHER_COLUMNS}`,
+      [id, ...voucherParams(input)],
+    );
+    if (!rows[0]) {
+      throw new AppError('NOT_FOUND', 'That voucher no longer exists.');
+    }
+    return toVoucher(rows[0]);
+  });
+}
+
+export async function deleteVoucher(db: Database, id: string): Promise<void> {
+  assertUuid(id);
+  const { rowCount } = await db.query(
+    'DELETE FROM petty_cash_vouchers WHERE id = $1',
+    [id],
+  );
+  if (!rowCount) {
+    throw new AppError('NOT_FOUND', 'That voucher no longer exists.');
+  }
 }

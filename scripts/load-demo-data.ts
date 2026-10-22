@@ -24,6 +24,7 @@ const TABLES = [
   'payslips',
   'documents',
   'petty_cash_transactions',
+  'petty_cash_vouchers',
 ];
 
 async function main() {

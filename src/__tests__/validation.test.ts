@@ -6,6 +6,7 @@ import {
   validateExpenseInput,
   validateLegacyPayload,
   validateUploads,
+  validateVoucherInput,
 } from '../shared/validation';
 
 const expense = {
@@ -93,6 +94,76 @@ describe('input validation', () => {
         vat: 0,
         attachmentFiles: [],
       }),
+    );
+  });
+
+  it('checks a voucher and numbers its lines through every section', () => {
+    const line = {
+      date: '',
+      particulars: ' Petrol ',
+      supplier: 'Toyota Hilux',
+      vatNo: '',
+      invoiceNo: '',
+      amountExclVat: null,
+      vatAmount: null,
+      amount: 136,
+    };
+    const voucher = {
+      refNo: ' MOON/PCV/2026-001 ',
+      date: '2026-10-15',
+      employeeId: '11111111-1111-4111-8111-111111111111',
+      receipts: [{ date: '2026-10-01', receivedFrom: ' Imran ', amount: 1000 }],
+      sections: [
+        { title: 'Mall', lines: [line] },
+        { title: '', lines: [line, line] },
+      ],
+      createdBy: '',
+      verifiedBy: '',
+      approvedBy: '',
+    };
+    const checked = validateVoucherInput(voucher);
+    expect(checked.refNo).toBe('MOON/PCV/2026-001');
+    expect(checked.receipts[0].receivedFrom).toBe('Imran');
+    expect(checked.sections[1].lines[0].particulars).toBe('Petrol');
+
+    const withBadLine = {
+      ...voucher,
+      sections: [
+        voucher.sections[0],
+        { title: '', lines: [line, { ...line, amount: 0 }] },
+      ],
+    };
+    expect(() => validateVoucherInput(withBadLine)).toThrow(
+      'Line 3: amount must be greater than zero.',
+    );
+    expect(() =>
+      validateVoucherInput({
+        ...voucher,
+        sections: [
+          {
+            title: '',
+            lines: [{ ...line, amountExclVat: 100, vatAmount: 15 }],
+          },
+        ],
+      }),
+    ).toThrow('Line 1: the amount must be the amount excluding VAT plus VAT.');
+    expect(() =>
+      validateVoucherInput({
+        ...voucher,
+        sections: [{ title: 'Tower 2', lines: [] }],
+      }),
+    ).toThrow('Section “Tower 2” has no lines.');
+    expect(() =>
+      validateVoucherInput({
+        ...voucher,
+        receipts: [{ date: '2026-10-01', receivedFrom: '', amount: 10 }],
+      }),
+    ).toThrow('Amount received 1: received from is required.');
+    expect(() => validateVoucherInput({ ...voucher, employeeId: '' })).toThrow(
+      'Choose the employee.',
+    );
+    expect(() => validateVoucherInput({ ...voucher, refNo: ' ' })).toThrow(
+      'Voucher no. is required.',
     );
   });
 });

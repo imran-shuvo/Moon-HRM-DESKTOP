@@ -3,7 +3,13 @@ import { gunzipSync, gzipSync } from 'zlib';
 import { isEmployeeRole } from '../../shared/employeeRoles';
 import { ATTENDANCE_STATUSES } from '../../shared/payroll';
 import { AppError } from '../../shared/errors';
-import { BackupCounts, BackupKind } from '../../shared/types';
+import { validateVoucherInput } from '../../shared/validation';
+import {
+  BackupCounts,
+  BackupKind,
+  VoucherReceipt,
+  VoucherSection,
+} from '../../shared/types';
 
 /**
  * Backup file format: gzip-compressed JSON.
@@ -15,7 +21,7 @@ import { BackupCounts, BackupKind } from '../../shared/types';
  *   data: { categories, departments, expenses, attachments, budgetReceipts,
  *           payees?, budgetPayers?, employees?, attendance?,
  *           salaryAdvances?, payslips?, payrollSettings?, documents?,
- *           pettyCash?, pettyCashAttachments? }
+ *           pettyCash?, pettyCashAttachments?, pettyCashVouchers? }
  * }
  *
  * `payees` and `budgetPayers` are only in backups made before employees
@@ -23,7 +29,8 @@ import { BackupCounts, BackupKind } from '../../shared/types';
  * added later; backups without it restore with no employees. Attendance,
  * advances, payslips and payroll settings were added after that; backups
  * without them restore with none (and the default payroll settings).
- * Documents and then petty cash were added later still, the same way.
+ * Documents, petty cash and then vouchers were added later still, the
+ * same way.
  *
  * It is independent of pg_dump/PostgreSQL versions and contains receipts,
  * so one file is enough to rebuild the company's data on any new server.
@@ -139,6 +146,20 @@ export type BackupPettyCashAttachment = {
   createdAt: string;
 };
 
+export type BackupVoucher = {
+  id: string;
+  refNo: string;
+  voucherDate: string;
+  employeeId: string | null;
+  receipts: VoucherReceipt[];
+  sections: VoucherSection[];
+  createdBy: string;
+  verifiedBy: string;
+  approvedBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type BackupAttendance = {
   employeeId: string;
   workDate: string;
@@ -233,6 +254,7 @@ export type BackupData = {
   documents?: BackupDocumentFile[];
   pettyCash?: BackupPettyCash[];
   pettyCashAttachments?: BackupPettyCashAttachment[];
+  pettyCashVouchers?: BackupVoucher[];
 };
 
 export type BackupDocument = {
@@ -267,6 +289,7 @@ export function countRecords(data: BackupData): BackupCounts {
     documents: data.documents?.length ?? 0,
     pettyCash: data.pettyCash?.length ?? 0,
     pettyCashAttachments: data.pettyCashAttachments?.length ?? 0,
+    pettyCashVouchers: data.pettyCashVouchers?.length ?? 0,
   };
 }
 
@@ -310,6 +333,55 @@ const isDate = (value: unknown) =>
   isString(value) && /^\d{4}-\d{2}-\d{2}$/.test(value);
 const isTimestamp = (value: unknown) =>
   isString(value) && !Number.isNaN(Date.parse(value));
+
+/** A voucher's fields and sections, checked as when it is saved. */
+function isValidVoucher(r: Record<string, unknown>) {
+  if (r.employeeId !== null && !isString(r.employeeId)) return false;
+  try {
+    // Vouchers made before they had an employee are kept without one.
+    validateVoucherInput({
+      ...r,
+      date: r.voucherDate,
+      employeeId: r.employeeId ?? '00000000-0000-4000-8000-000000000000',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Vouchers backed up before schema 14 had a project, departments and one
+ * received amount, and no employee; they restore with that amount as their
+ * only receipt.
+ */
+function upgradeVoucher(record: unknown): unknown {
+  if (typeof record !== 'object' || record === null) return record;
+  const r = record as Record<string, unknown>;
+  if (r.receipts !== undefined) return r;
+  const { receivedNote, receivedAmount } = r;
+  const rest = { ...r };
+  ['project', 'departments', 'receivedNote', 'receivedAmount'].forEach(
+    (key) => delete rest[key],
+  );
+  return {
+    ...rest,
+    employeeId: r.employeeId ?? null,
+    receipts:
+      isNumber(receivedAmount) && receivedAmount > 0
+        ? [
+            {
+              date: r.voucherDate,
+              receivedFrom:
+                isString(receivedNote) && receivedNote.trim()
+                  ? receivedNote
+                  : 'Cash received',
+              amount: receivedAmount,
+            },
+          ]
+        : [],
+  };
+}
 
 function checkRecords<T>(
   value: unknown,
@@ -592,6 +664,20 @@ function validateData(value: unknown): BackupData {
             isTimestamp(r.createdAt),
         );
 
+  data.pettyCashVouchers =
+    raw.pettyCashVouchers === undefined
+      ? undefined
+      : checkRecords(
+          raw.pettyCashVouchers,
+          'Petty cash vouchers',
+          (r) =>
+            isString(r.id) &&
+            isDate(r.voucherDate) &&
+            isTimestamp(r.createdAt) &&
+            isTimestamp(r.updatedAt) &&
+            isValidVoucher(upgradeVoucher(r) as Record<string, unknown>),
+        );
+
   // Referential integrity, so a restore never fails half way on a foreign key.
   const categories = new Set(data.categories.map((item) => item.name));
   const departments = new Set(data.departments.map((item) => item.name));
@@ -627,6 +713,11 @@ function validateData(value: unknown): BackupData {
   data.documents?.forEach((document) => {
     if (document.employeeId !== null && !employeeIds.has(document.employeeId)) {
       invalid('a document belongs to a missing employee.');
+    }
+  });
+  data.pettyCashVouchers?.forEach((voucher) => {
+    if (voucher.employeeId && !employeeIds.has(voucher.employeeId)) {
+      invalid('a voucher belongs to a missing employee.');
     }
   });
   payroll.forEach(([label, records]) =>
@@ -665,6 +756,12 @@ export function parseBackup(file: Buffer): BackupDocument {
   const data = validateData(document.data);
   if (document.checksum !== checksum(data)) {
     invalid('the checksum does not match, so the file is corrupted.');
+  }
+  // Checked as stored; older vouchers then take the current shape.
+  if (data.pettyCashVouchers) {
+    data.pettyCashVouchers = data.pettyCashVouchers.map(
+      (voucher) => upgradeVoucher(voucher) as BackupVoucher,
+    );
   }
   return {
     ...(document as BackupDocument),

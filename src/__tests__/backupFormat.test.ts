@@ -92,6 +92,7 @@ describe('backup file format', () => {
       documents: 0,
       pettyCash: 0,
       pettyCashAttachments: 0,
+      pettyCashVouchers: 0,
     });
   });
 
@@ -165,6 +166,133 @@ describe('backup file format', () => {
     expect(() =>
       parseBackup(serializeBackup(buildBackupDocument(badKind, meta))),
     ).toThrow(/Petty cash entries record #1 is malformed/);
+  });
+
+  it('keeps petty cash vouchers and refuses malformed ones', () => {
+    const employeeId = '33333333-3333-4333-8333-333333333333';
+    const voucher = {
+      id: '66666666-6666-4666-8666-666666666666',
+      refNo: 'MOON/PCV/2026 - KEPAYAT',
+      voucherDate: '2026-10-15',
+      employeeId,
+      receipts: [{ date: '2026-10-01', receivedFrom: 'Imran', amount: 1000 }],
+      sections: [
+        {
+          title: 'Tower 2',
+          lines: [
+            {
+              date: '2026-10-13',
+              particulars: 'Iqbal Abul Kalam',
+              supplier: 'Carpenter (advance) tower 2',
+              vatNo: '',
+              invoiceNo: '',
+              amountExclVat: null,
+              vatAmount: null,
+              amount: 300,
+            },
+          ],
+        },
+      ],
+      createdBy: 'Kepayat',
+      verifiedBy: '',
+      approvedBy: 'Gobi Krishnan',
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const withVouchers: BackupData = {
+      ...sampleData(),
+      employees: [
+        {
+          id: employeeId,
+          name: 'Kepayat',
+          iqamaNo: '2412345678',
+          designation: '',
+          projectName: 'Mall',
+          phoneNo: '',
+          insuranceNo: '',
+          iqamaExpiry: null,
+          campName: '',
+          createdAt,
+          updatedAt: createdAt,
+        },
+      ],
+      pettyCashVouchers: [voucher],
+    };
+    const parsed = parseBackup(
+      serializeBackup(buildBackupDocument(withVouchers, meta)),
+    );
+    expect(parsed.data).toEqual(withVouchers);
+    expect(parsed.counts).toEqual(
+      expect.objectContaining({ pettyCashVouchers: 1 }),
+    );
+
+    const noEmployee = { ...withVouchers, employees: [] };
+    expect(() =>
+      parseBackup(serializeBackup(buildBackupDocument(noEmployee, meta))),
+    ).toThrow(/a voucher belongs to a missing employee/);
+
+    const noLines = {
+      ...withVouchers,
+      pettyCashVouchers: [
+        { ...voucher, sections: [{ title: 'Tower 2', lines: [] }] },
+      ],
+    };
+    expect(() =>
+      parseBackup(serializeBackup(buildBackupDocument(noLines, meta))),
+    ).toThrow(/Petty cash vouchers record #1 is malformed/);
+  });
+
+  it('restores vouchers backed up before they had an employee', () => {
+    const { employeeId, receipts, ...rest } = {
+      id: '66666666-6666-4666-8666-666666666666',
+      refNo: 'MOON/PCV/2026-001',
+      voucherDate: '2026-10-21',
+      employeeId: null,
+      receipts: [],
+      sections: [
+        {
+          title: '',
+          lines: [
+            {
+              date: '',
+              particulars: 'Petrol',
+              supplier: '',
+              vatNo: '',
+              invoiceNo: '',
+              amountExclVat: null,
+              vatAmount: null,
+              amount: 136,
+            },
+          ],
+        },
+      ],
+      createdBy: '',
+      verifiedBy: '',
+      approvedBy: '',
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const old = {
+      ...sampleData(),
+      pettyCashVouchers: [
+        {
+          ...rest,
+          project: 'Mall',
+          departments: ['Civil'],
+          receivedNote: 'imran',
+          receivedAmount: 3434,
+        },
+      ],
+    } as unknown as BackupData;
+    const parsed = parseBackup(serializeBackup(buildBackupDocument(old, meta)));
+    expect(parsed.data.pettyCashVouchers).toEqual([
+      {
+        ...rest,
+        employeeId,
+        receipts: [{ date: '2026-10-21', receivedFrom: 'imran', amount: 3434 }],
+      },
+    ]);
+    expect(receipts).toEqual([]);
   });
 
   it('keeps attendance, advances, payslips and payroll settings', () => {

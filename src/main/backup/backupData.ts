@@ -81,6 +81,11 @@ export function readBackupData(db: Database): Promise<BackupData> {
                 created_at
          FROM petty_cash_attachments ORDER BY created_at, id`,
       );
+      const vouchers = await client.query(
+        `SELECT id, ref_no, voucher_date, employee_id, receipts, sections,
+                created_by, verified_by, approved_by, created_at, updated_at
+         FROM petty_cash_vouchers ORDER BY voucher_date, created_at, id`,
+      );
       const settings = await client.query(
         `SELECT overtime_multiplier, weekend_overtime_multiplier,
                 salary_days, paid_days_off, leave_paid, vacation_paid
@@ -250,6 +255,19 @@ export function readBackupData(db: Database): Promise<BackupData> {
           contentBase64: (row.content as Buffer).toString('base64'),
           createdAt: iso(row.created_at),
         })),
+        pettyCashVouchers: vouchers.rows.map((row) => ({
+          id: row.id,
+          refNo: row.ref_no,
+          voucherDate: row.voucher_date,
+          employeeId: row.employee_id,
+          receipts: row.receipts,
+          sections: row.sections,
+          createdBy: row.created_by,
+          verifiedBy: row.verified_by,
+          approvedBy: row.approved_by,
+          createdAt: iso(row.created_at),
+          updatedAt: iso(row.updated_at),
+        })),
       };
     },
     { isolation: 'REPEATABLE READ' },
@@ -294,7 +312,7 @@ export function restoreBackupData(
       `TRUNCATE expense_attachments, expenses, budget_receipts, categories,
                 departments, attendance, salary_advances, payslips,
                 documents, petty_cash_attachments, petty_cash_transactions,
-                employees`,
+                petty_cash_vouchers, employees`,
     );
     const json = (rows: unknown[]) => JSON.stringify(rows);
     const lists = [
@@ -518,6 +536,19 @@ export function restoreBackupData(
         ],
       );
     }
+    // Older backups have no vouchers.
+    await client.query(
+      `INSERT INTO petty_cash_vouchers
+         (id, ref_no, voucher_date, employee_id, receipts, sections,
+          created_by, verified_by, approved_by, created_at, updated_at)
+       SELECT id, "refNo", "voucherDate", "employeeId", receipts, sections,
+              "createdBy", "verifiedBy", "approvedBy", "createdAt", "updatedAt"
+       FROM jsonb_to_recordset($1::jsonb) AS x(
+         id uuid, "refNo" text, "voucherDate" date, "employeeId" uuid,
+         receipts jsonb, sections jsonb, "createdBy" text, "verifiedBy" text,
+         "approvedBy" text, "createdAt" timestamptz, "updatedAt" timestamptz)`,
+      [json(data.pettyCashVouchers ?? [])],
+    );
     return countRecords(data);
   });
 }

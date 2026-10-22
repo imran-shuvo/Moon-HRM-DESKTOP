@@ -69,6 +69,11 @@ const financeApi: FinanceApi = {
     remove: (id) => invoke(IPC.pettyCashDelete, id),
     openAttachment: (id) => invoke(IPC.pettyCashOpenAttachment, id),
   },
+  vouchers: {
+    create: (input) => invoke(IPC.voucherCreate, input),
+    update: (id, input) => invoke(IPC.voucherUpdate, id, input),
+    remove: (id) => invoke(IPC.voucherDelete, id),
+  },
   payroll: {
     updateSettings: (settings) => invoke(IPC.payrollUpdateSettings, settings),
   },

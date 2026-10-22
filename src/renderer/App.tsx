@@ -17,6 +17,8 @@ import {
   PETTY_CASH_SECTIONS,
   PettyCashSection,
   Section,
+  VOUCHER_PAGES,
+  VoucherPage,
   employeeNames,
   formatAmount,
   formatCurrency,
@@ -65,6 +67,7 @@ import AttendancePanel from './expenses/components/AttendancePanel';
 import PayrollPanel from './expenses/components/PayrollPanel';
 import DocumentsPanel from './expenses/components/DocumentsPanel';
 import PettyCashPanel from './expenses/components/PettyCashPanel';
+import VouchersPanel from './expenses/components/VouchersPanel';
 import PayrollPolicyPanel from './expenses/components/PayrollPolicyPanel';
 import { PrintJob } from './expenses/components/printJob';
 import BackupPanel from './expenses/components/BackupPanel';
@@ -83,6 +86,7 @@ const EMPTY_SNAPSHOT: FinanceSnapshot = {
   payrollSettings: DEFAULT_PAYROLL_SETTINGS,
   documents: [],
   pettyCash: [],
+  pettyCashVouchers: [],
 };
 
 /** Reload from the database when the window regains focus, at most this often. */
@@ -178,6 +182,7 @@ const SECTION_EYEBROWS: Record<Section, string> = {
   Transactions: 'FINANCE',
   Budgets: 'FINANCE',
   'Petty Cash': 'FINANCE · PETTY CASH',
+  Vouchers: 'FINANCE · VOUCHERS',
   Reports: 'FINANCE',
   Employees: 'PEOPLE',
   Attendance: 'PEOPLE',
@@ -204,6 +209,11 @@ const TITLES: Record<Section, { title: string; subtitle: string }> = {
     title: 'Petty cash',
     subtitle:
       "Cash in each worker's hands, every payment back to you, and the receipts behind it.",
+  },
+  Vouchers: {
+    title: 'Vouchers',
+    subtitle:
+      'Petty cash vouchers: the cash received and the bills paid from it.',
   },
   Employees: {
     title: 'Employees',
@@ -262,6 +272,9 @@ export default function App({ api }: { api: FinanceApi }) {
   const [section, setSectionNow] = useState<Section>('Overview');
   const [pettyCashSection, setPettyCashSection] =
     useState<PettyCashSection>('given');
+  const [voucherPage, setVoucherPage] = useState<VoucherPage>('vouchers');
+  /** Counts sidebar visits to the voucher pages, so each starts fresh. */
+  const [voucherVisit, setVoucherVisit] = useState(0);
   // Leaving Attendance with unsaved entries asks first, so nothing is lost.
   const [attendanceDirty, setAttendanceDirty] = useState(false);
   const [pendingSection, setPendingSection] = useState<Section>();
@@ -852,6 +865,11 @@ export default function App({ api }: { api: FinanceApi }) {
     pageTitle = pettyCashPage.label;
     pageSubtitle = pettyCashPage.subtitle;
   }
+  const voucherPageInfo = VOUCHER_PAGES.find((item) => item.id === voucherPage);
+  if (section === 'Vouchers' && voucherPageInfo) {
+    pageTitle = voucherPageInfo.label;
+    pageSubtitle = voucherPageInfo.subtitle;
+  }
 
   return (
     <FinanceApiProvider value={api}>
@@ -864,6 +882,12 @@ export default function App({ api }: { api: FinanceApi }) {
           onSelectPettyCash={(next) => {
             setPettyCashSection(next);
             setSection('Petty Cash');
+          }}
+          voucherPage={voucherPage}
+          onSelectVoucherPage={(next) => {
+            setVoucherPage(next);
+            setVoucherVisit((count) => count + 1);
+            setSection('Vouchers');
           }}
           transactionCount={expenses.length}
           unpaidPayslipCount={
@@ -1051,6 +1075,31 @@ export default function App({ api }: { api: FinanceApi }) {
                 onEditPayment={openEditBudgetPayment}
                 onDeletePayment={requestDeleteBudgetPayment}
                 onExportPdf={prepareBudgetPdfExport}
+              />
+            )}
+
+            {section === 'Vouchers' && (
+              <VouchersPanel
+                page={voucherPage}
+                visit={voucherVisit}
+                onPageChange={setVoucherPage}
+                vouchers={data.pettyCashVouchers}
+                employees={employees}
+                onPrint={setPrintJob}
+                onSaved={(saved) =>
+                  setData((current) => ({
+                    ...current,
+                    pettyCashVouchers: upsert(current.pettyCashVouchers, saved),
+                  }))
+                }
+                onRemoved={(id) =>
+                  setData((current) => ({
+                    ...current,
+                    pettyCashVouchers: current.pettyCashVouchers.filter(
+                      (item) => item.id !== id,
+                    ),
+                  }))
+                }
               />
             )}
 

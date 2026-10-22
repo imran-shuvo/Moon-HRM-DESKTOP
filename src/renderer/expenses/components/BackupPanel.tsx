@@ -100,7 +100,8 @@ function RestoreDialog({
           </li>
           <li>
             {plural(counts.pettyCash ?? 0, 'petty cash record')} ·{' '}
-            {plural(counts.pettyCashAttachments ?? 0, 'petty cash file')}
+            {plural(counts.pettyCashAttachments ?? 0, 'petty cash file')} ·{' '}
+            {plural(counts.pettyCashVouchers ?? 0, 'voucher')}
           </li>
         </ul>
         <p className="restore-warning">

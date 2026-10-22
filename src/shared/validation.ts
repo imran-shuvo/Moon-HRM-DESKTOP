@@ -14,7 +14,10 @@ import {
   PayrollSettings,
   PayslipInput,
   PettyCashInput,
+  PettyCashVoucherInput,
   SalaryAdvanceInput,
+  VoucherLine,
+  VoucherReceipt,
 } from './types';
 
 export const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
@@ -286,6 +289,113 @@ export function validatePettyCashInput(value: unknown): PettyCashInput {
     amount: money(input.amount, 'Amount', { allowZero: false }),
     note: text(input.note, 'Description', { max: 300 }),
     remarks: text(input.remarks, 'Remarks', { max: 1000 }),
+  };
+}
+
+export const MAX_VOUCHER_SECTIONS = 50;
+export const MAX_VOUCHER_LINES = 500;
+export const MAX_VOUCHER_RECEIPTS = 50;
+
+/** Money that may be left blank (null). */
+function optionalMoney(value: unknown, label: string): number | null {
+  if (value === undefined || value === null) return null;
+  return money(value, label, { allowZero: true });
+}
+
+function voucherLine(value: unknown, where: string): VoucherLine {
+  const line = asRecord(value, where);
+  const amountExclVat = optionalMoney(
+    line.amountExclVat,
+    `${where}: amount excluding VAT`,
+  );
+  const vatAmount = optionalMoney(line.vatAmount, `${where}: VAT amount`);
+  const amount = money(line.amount, `${where}: amount`, { allowZero: false });
+  if (
+    amountExclVat !== null &&
+    vatAmount !== null &&
+    Math.round((amountExclVat + vatAmount) * 100) !== Math.round(amount * 100)
+  ) {
+    fail(`${where}: the amount must be the amount excluding VAT plus VAT.`);
+  }
+  return {
+    date:
+      line.date === undefined || line.date === null || line.date === ''
+        ? ''
+        : isoDate(line.date, `${where}: date`),
+    particulars: text(line.particulars, `${where}: particulars`, {
+      max: 200,
+      required: true,
+    }),
+    supplier: text(line.supplier, `${where}: supplier's name`, { max: 200 }),
+    vatNo: text(line.vatNo, `${where}: VAT no.`, { max: 40 }),
+    invoiceNo: text(line.invoiceNo, `${where}: invoice no.`, { max: 60 }),
+    amountExclVat,
+    vatAmount,
+    amount,
+  };
+}
+
+function voucherReceipt(value: unknown, where: string): VoucherReceipt {
+  const receipt = asRecord(value, where);
+  return {
+    date: isoDate(receipt.date, `${where}: date`),
+    receivedFrom: text(receipt.receivedFrom, `${where}: received from`, {
+      max: 120,
+      required: true,
+    }),
+    amount: money(receipt.amount, `${where}: amount`, { allowZero: false }),
+  };
+}
+
+export function validateVoucherInput(value: unknown): PettyCashVoucherInput {
+  const input = asRecord(value, 'Voucher');
+  if (!Array.isArray(input.sections))
+    fail('The voucher sections are malformed.');
+  if (input.sections.length > MAX_VOUCHER_SECTIONS) {
+    fail(`A voucher can have at most ${MAX_VOUCHER_SECTIONS} sections.`);
+  }
+  // Lines are numbered through the whole voucher, as it is printed.
+  let lineNumber = 0;
+  const sections = input.sections.map((rawSection, index) => {
+    const section = asRecord(rawSection, `Section ${index + 1}`);
+    const title = text(section.title, `Section ${index + 1} title`, {
+      max: 120,
+    });
+    if (!Array.isArray(section.lines) || section.lines.length === 0) {
+      fail(`Section ${title ? `“${title}”` : index + 1} has no lines.`);
+    }
+    const lines = section.lines.map((rawLine) => {
+      lineNumber += 1;
+      return voucherLine(rawLine, `Line ${lineNumber}`);
+    });
+    return { title, lines };
+  });
+  if (lineNumber === 0) fail('Add at least one line to the voucher.');
+  if (lineNumber > MAX_VOUCHER_LINES) {
+    fail(`A voucher can have at most ${MAX_VOUCHER_LINES} lines.`);
+  }
+  if (!Array.isArray(input.receipts))
+    fail('The amounts received are malformed.');
+  if (input.receipts.length > MAX_VOUCHER_RECEIPTS) {
+    fail(
+      `A voucher can have at most ${MAX_VOUCHER_RECEIPTS} amounts received.`,
+    );
+  }
+  const receipts = input.receipts.map((receipt, index) =>
+    voucherReceipt(receipt, `Amount received ${index + 1}`),
+  );
+  if (typeof input.employeeId !== 'string' || !input.employeeId) {
+    fail('Choose the employee.');
+  }
+  return {
+    refNo: text(input.refNo, 'Voucher no.', { max: 80, required: true }),
+    date: isoDate(input.date, 'Date'),
+    employeeId: recordId(input.employeeId),
+    receipts,
+    sections,
+    createdBy: text(input.createdBy, 'Created by', { max: 80 }),
+    verifiedBy: text(input.verifiedBy, 'Verified by', { max: 80 }),
+    approvedBy: text(input.approvedBy, 'Approved by', { max: 80 }),
   };
 }
 

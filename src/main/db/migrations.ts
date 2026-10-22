@@ -450,6 +450,60 @@ export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
         ADD COLUMN remarks TEXT NOT NULL DEFAULT '';
     `,
   },
+  {
+    version: 13,
+    name: 'petty cash vouchers',
+    sql: `
+      -- A voucher is one document: the cash received, then its bills in
+      -- titled sections. The sections and their lines are kept together
+      -- as JSON, since they are only ever read and saved as a whole.
+      CREATE TABLE petty_cash_vouchers (
+        id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        ref_no           TEXT NOT NULL,
+        voucher_date     DATE NOT NULL,
+        project          TEXT NOT NULL DEFAULT '',
+        departments      JSONB NOT NULL DEFAULT '[]',
+        received_note    TEXT NOT NULL DEFAULT '',
+        received_amount  NUMERIC(14, 2) NOT NULL DEFAULT 0
+                         CHECK (received_amount >= 0),
+        sections         JSONB NOT NULL DEFAULT '[]',
+        created_by       TEXT NOT NULL DEFAULT '',
+        verified_by      TEXT NOT NULL DEFAULT '',
+        approved_by      TEXT NOT NULL DEFAULT '',
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX petty_cash_vouchers_date_idx
+        ON petty_cash_vouchers (voucher_date);
+    `,
+  },
+  {
+    version: 14,
+    name: 'vouchers belong to an employee, with a list of amounts received',
+    sql: `
+      -- A voucher is now for one employee, and records each amount they
+      -- received (date, from whom, amount) instead of a single total.
+      -- Vouchers made before keep no employee until they are edited. Like
+      -- petty cash, an employee with vouchers cannot be deleted.
+      ALTER TABLE petty_cash_vouchers
+        ADD COLUMN employee_id UUID REFERENCES employees (id) ON DELETE RESTRICT,
+        ADD COLUMN receipts JSONB NOT NULL DEFAULT '[]';
+      UPDATE petty_cash_vouchers
+        SET receipts = jsonb_build_array(jsonb_build_object(
+          'date', voucher_date::text,
+          'receivedFrom', CASE WHEN received_note <> '' THEN received_note
+                               ELSE 'Cash received' END,
+          'amount', received_amount))
+        WHERE received_amount > 0;
+      ALTER TABLE petty_cash_vouchers
+        DROP COLUMN project,
+        DROP COLUMN departments,
+        DROP COLUMN received_note,
+        DROP COLUMN received_amount;
+      CREATE INDEX petty_cash_vouchers_employee_idx
+        ON petty_cash_vouchers (employee_id);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

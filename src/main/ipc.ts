@@ -24,6 +24,7 @@ import {
   validatePayrollSettings,
   validatePayslipInputs,
   validatePettyCashInput,
+  validateVoucherInput,
   validateAttachmentIds,
   validateSalaryAdvanceInput,
   validateSalaryAdvanceInputs,
@@ -267,6 +268,16 @@ export default function registerIpcHandlers({
     if (!file) throw new AppError('NOT_FOUND', 'That file no longer exists.');
     await openStoredFile(attachmentId, file);
   });
+
+  handle(IPC.voucherCreate, (input: unknown) =>
+    repository.createVoucher(db(), validateVoucherInput(input)),
+  );
+  handle(IPC.voucherUpdate, (id: unknown, input: unknown) =>
+    repository.updateVoucher(db(), recordId(id), validateVoucherInput(input)),
+  );
+  handle(IPC.voucherDelete, (id: unknown) =>
+    repository.deleteVoucher(db(), recordId(id)),
+  );
 
   handle(IPC.budgetCreate, (input: unknown) =>
     repository.createBudgetTransaction(
