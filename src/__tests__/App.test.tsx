@@ -195,6 +195,7 @@ describe('App', () => {
       'Total budget',
       'Total expenses',
       'Remaining budget',
+      'Petty cash in hand',
     ]);
     expect(summary.getByText('Total expenses')).toBeInTheDocument();
     expect(

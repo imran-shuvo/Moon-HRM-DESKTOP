@@ -4,7 +4,13 @@ import {
   monthKey,
   previousMonthKey,
 } from '../../../shared/months';
-import { Budget, Expense, formatAmount, formatCurrency } from '../model';
+import {
+  Budget,
+  Expense,
+  formatAmount,
+  formatCurrency,
+  plural,
+} from '../model';
 import ExpenseTable from './ExpenseTable';
 import SpendChart from './SpendChart';
 import CategorySpendCard from './CategorySpendCard';
@@ -25,7 +31,9 @@ export default function OverviewPanel({
   remaining,
   budgetStatus,
   recentExpenses,
+  pettyCash,
   onShowTransactions,
+  onShowPettyCash,
   onViewMonth,
 }: {
   /** The month shown, 'YYYY-MM'. */
@@ -50,7 +58,16 @@ export default function OverviewPanel({
   remaining: number;
   budgetStatus: string;
   recentExpenses: Expense[];
+  /** Petty cash in workers' hands at the end of the month (now, for this month). */
+  pettyCash: {
+    inHand: number;
+    holding: number;
+    given: number;
+    settled: number;
+  };
   onShowTransactions: () => void;
+  /** Opens Petty Cash → Cash in hand. */
+  onShowPettyCash: () => void;
   onViewMonth: (month: string) => void;
 }) {
   const isCurrent = month === monthKey();
@@ -129,6 +146,30 @@ export default function OverviewPanel({
             {formatCurrency(remaining)}
           </strong>
           <p className="stat-foot">{budgetStatus}</p>
+        </article>
+        <article className="stat-card">
+          <div className="stat-top">
+            <span className="stat-icon blue">◈</span>
+            <span className="stat-note">
+              {isCurrent ? 'Now' : `End of ${monthName}`}
+            </span>
+          </div>
+          <p className="stat-label">Petty cash in hand</p>
+          <strong className={pettyCash.inHand < 0 ? 'stat-overrun' : undefined}>
+            {formatCurrency(pettyCash.inHand)}
+          </strong>
+          <p className="stat-foot">
+            {plural(pettyCash.holding, 'worker')} holding cash ·{' '}
+            {formatAmount(pettyCash.given)} given,{' '}
+            {formatAmount(pettyCash.settled)} settled in {monthName}
+          </p>
+          <button
+            className="text-button stat-link"
+            onClick={onShowPettyCash}
+            type="button"
+          >
+            View cash in hand <span aria-hidden="true">→</span>
+          </button>
         </article>
       </section>
       <section className="overview-grid">

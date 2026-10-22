@@ -420,6 +420,70 @@ describe('Petty cash', () => {
     ).rejects.toThrow(/is closed/);
   });
 
+  it('shows the petty cash in hand on the Overview', async () => {
+    const memory = createMemoryApi({
+      expenses: [],
+      employees: [
+        employee({}),
+        employee({ id: NASIR, name: 'Nasir', iqamaNo: '2400000002' }),
+      ],
+      pettyCash: [
+        entry({}),
+        entry({
+          id: '44444444-4444-4444-8444-444444444444',
+          kind: 'received',
+          amount: 700,
+          date: day(20, LAST_MONTH),
+          createdAt: 2,
+        }),
+        entry({
+          id: '55555555-5555-4555-8555-555555555555',
+          amount: 200,
+          date: day(2),
+          createdAt: 3,
+        }),
+        entry({
+          id: '66666666-6666-4666-8666-666666666666',
+          employeeId: NASIR,
+          amount: 150,
+          date: day(3),
+          createdAt: 4,
+        }),
+        entry({
+          id: '77777777-7777-4777-8777-777777777777',
+          employeeId: NASIR,
+          kind: 'received',
+          amount: 50,
+          date: day(4),
+          createdAt: 5,
+        }),
+      ],
+    });
+    render(<App api={memory.api} />);
+    const summary = await screen.findByRole('region', {
+      name: 'Company budget summary',
+    });
+    // Karim: 300 carried + 200 given = 500; Nasir: 150 − 50 = 100.
+    const card = within(summary)
+      .getByText('Petty cash in hand')
+      .closest('article') as HTMLElement;
+    expect(card).toHaveTextContent('Now');
+    expect(card).toHaveTextContent('SAR 600.00');
+    expect(card).toHaveTextContent(
+      /2 workers holding cash · 350\.00 given, 50\.00 settled in/,
+    );
+
+    fireEvent.click(
+      within(card).getByRole('button', { name: /View cash in hand/ }),
+    );
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Cash in hand' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Petty cash totals/)).toHaveTextContent(
+      'SAR 600.00',
+    );
+  });
+
   it('warns when more is settled than the worker holds', async () => {
     await renderApp();
     tab('Settlements');

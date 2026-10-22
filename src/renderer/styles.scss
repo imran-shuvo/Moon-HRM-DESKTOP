@@ -82,7 +82,8 @@ h1 { margin-bottom: 5px; font: 700 25px var(--font-ui); letter-spacing: -.8px; }
 .button-secondary { border-color: #e7e7ec; color: #50515f; background: #fff; }
 .button-secondary:hover { background: #f7f7fa; }
 .stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
-.overview-total-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.overview-total-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stat-card .stat-link { margin-top: 4px; }
 .stat-card, .panel { border: 1px solid #ededf1; border-radius: 9px; background: #fff; box-shadow: 0 2px 8px #27284306; }
 .stat-card { min-width: 0; padding: 15px 17px 14px; }
 .stat-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }

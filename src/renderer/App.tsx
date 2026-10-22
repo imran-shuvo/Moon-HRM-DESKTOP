@@ -21,6 +21,7 @@ import {
   VoucherPage,
   employeeNames,
   formatAmount,
+  pettyCashMonthBalances,
   formatCurrency,
   calculateBudgetForPeriod,
   getExpenseTotal,
@@ -31,7 +32,7 @@ import {
   withSerialNumbers,
 } from './expenses/model';
 import { isMonthClosed, monthKey } from '../shared/months';
-import { DEFAULT_PAYROLL_SETTINGS } from '../shared/payroll';
+import { DEFAULT_PAYROLL_SETTINGS, roundMoney } from '../shared/payroll';
 import { FinanceApiProvider, errorMessage } from './data/FinanceApiContext';
 import {
   hasLegacyData,
@@ -539,6 +540,20 @@ export default function App({ api }: { api: FinanceApi }) {
     () => expenses.filter((expense) => expense.date.startsWith(viewMonth)),
     [expenses, viewMonth],
   );
+  // Petty cash in hand at the end of that month, as on Cash in hand.
+  const overviewPettyCash = useMemo(() => {
+    const rows = [
+      ...pettyCashMonthBalances(data.pettyCash, viewMonth).values(),
+    ];
+    const total = (pick: (row: (typeof rows)[number]) => number) =>
+      roundMoney(rows.reduce((sum, row) => sum + pick(row), 0));
+    return {
+      inHand: total((row) => row.inHand),
+      holding: rows.filter((row) => row.inHand > 0).length,
+      given: total((row) => row.given),
+      settled: total((row) => row.received),
+    };
+  }, [data.pettyCash, viewMonth]);
   const { start: viewMonthStart, end: viewMonthEnd } = getMonthDateRange(
     `${viewMonth}-01`,
   );
@@ -1048,7 +1063,12 @@ export default function App({ api }: { api: FinanceApi }) {
                 recentExpenses={[...expenses]
                   .sort((a, b) => b.date.localeCompare(a.date))
                   .slice(0, 5)}
+                pettyCash={overviewPettyCash}
                 onShowTransactions={showTransactions}
+                onShowPettyCash={() => {
+                  setPettyCashSection('balances');
+                  setSection('Petty Cash');
+                }}
               />
             )}
 
