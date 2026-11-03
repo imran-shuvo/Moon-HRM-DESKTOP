@@ -904,7 +904,10 @@ export default function App({ api }: { api: FinanceApi }) {
             setVoucherVisit((count) => count + 1);
             setSection('Vouchers');
           }}
-          transactionCount={expenses.length}
+          transactionCount={
+            expenses.filter((expense) => expense.date.startsWith(monthKey()))
+              .length
+          }
           unpaidPayslipCount={
             data.payslips.filter((payslip) => payslip.status === 'unpaid')
               .length
@@ -1075,6 +1078,7 @@ export default function App({ api }: { api: FinanceApi }) {
             {section === 'Transactions' && (
               <TransactionPanel
                 expenses={expenses}
+                isDateClosed={isDateClosed}
                 payees={[
                   ...new Set([
                     ...employeeNameList,

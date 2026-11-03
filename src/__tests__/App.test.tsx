@@ -557,6 +557,13 @@ describe('App', () => {
         ]),
       ),
     );
+    // Transactions shows one month at a time.
+    fireEvent.change(screen.getByLabelText('Month'), {
+      target: { value: '2020-01' },
+    });
+    expect(
+      screen.getByRole('heading', { name: 'Expenses in January 2020' }),
+    ).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Filter expenses from date'), {
       target: { value: '2020-01-01' },
     });
@@ -1300,7 +1307,9 @@ describe('App', () => {
     );
     expect(preview.getByText('EXPENSE REPORT')).toBeInTheDocument();
     expect(
-      preview.getByText('Period: All dates · Paid to: Pacific Building Supply'),
+      preview.getByText(
+        /^Period: 01-\w{3}-\d{4} to \d{2}-\w{3}-\d{4} · Paid to: Pacific Building Supply$/,
+      ),
     ).toBeInTheDocument();
     const printTable = within(preview.getByRole('table'));
     // Same rows as the list (header + rows + total in both tables).
@@ -1312,7 +1321,7 @@ describe('App', () => {
     fireEvent.click(preview.getByRole('button', { name: 'Save PDF' }));
     await waitFor(() => expect(savePdf).toHaveBeenCalledTimes(1));
     expect(savePdf.mock.calls[0][0]).toMatch(
-      /^expense-transactions_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/,
+      /^expense-transactions_\d{4}-\d{2}_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/,
     );
   });
 
@@ -1360,6 +1369,71 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Next month' })).toBeDisabled();
   });
 
+  it('keeps transactions by month, each numbered from 1', async () => {
+    await renderApp({
+      expenses: [
+        {
+          id: 'sep-1',
+          date: '2026-09-03',
+          payee: 'September Vendor',
+          description: 'Materials',
+          category: 'Materials',
+          department: 'Operations',
+          paymentMethod: 'Cash',
+          amount: 400,
+        },
+        {
+          id: 'sep-2',
+          date: '2026-09-20',
+          payee: 'Late September Vendor',
+          description: 'Materials',
+          category: 'Materials',
+          department: 'Operations',
+          paymentMethod: 'Cash',
+          amount: 150,
+        },
+        {
+          id: 'oct-1',
+          date: '2026-10-05',
+          payee: 'October Vendor',
+          description: 'Materials',
+          category: 'Materials',
+          department: 'Operations',
+          paymentMethod: 'Cash',
+          amount: 90,
+        },
+      ],
+    });
+    const sidebar = screen.getByRole('navigation', { name: 'Main navigation' });
+    // The count beside Transactions is this month's.
+    expect(
+      within(sidebar).getByRole('button', { name: /Transactions/ }),
+    ).toHaveTextContent('1');
+    fireEvent.click(
+      within(sidebar).getByRole('button', { name: /Transactions/ }),
+    );
+
+    expect(
+      screen.getByRole('heading', { name: 'Expenses in October 2026' }),
+    ).toBeInTheDocument();
+    let rows = within(screen.getByRole('table'))
+      .getAllByRole('row')
+      .slice(1, -1);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent('October Vendor');
+    expect(within(rows[0]).getAllByRole('cell')[0]).toHaveTextContent('1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+    expect(
+      screen.getByRole('heading', { name: 'Expenses in September 2026' }),
+    ).toBeInTheDocument();
+    rows = within(screen.getByRole('table')).getAllByRole('row').slice(1, -1);
+    expect(
+      rows.map((row) => within(row).getAllByRole('cell')[0].textContent),
+    ).toEqual(['1', '2']);
+    expect(screen.getByText(/2 expenses · SAR 550\.00/)).toBeInTheDocument();
+  });
+
   it('makes closed-month transactions read-only until the month is reopened', async () => {
     const memory = await renderApp({
       expenses: [
@@ -1395,6 +1469,14 @@ describe('App', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    // October's list starts empty; September's expenses are a month back.
+    expect(
+      screen.getByText('No expenses in October 2026 yet.'),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+    expect(
+      screen.getByText(/September 2026 is closed, so its expenses/),
+    ).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: 'View details for September Vendor' }),
     );
@@ -1422,6 +1504,7 @@ describe('App', () => {
     expect(memory.snapshot().reopenedMonths).toEqual(['2026-09']);
 
     fireEvent.click(screen.getByRole('button', { name: /transactions/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
     fireEvent.click(
       screen.getByRole('button', { name: 'View details for September Vendor' }),
     );

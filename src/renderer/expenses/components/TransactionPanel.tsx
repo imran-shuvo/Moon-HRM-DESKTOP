@@ -1,14 +1,21 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { formatMonthName, monthKey } from '../../../shared/months';
+import { roundMoney } from '../../../shared/payroll';
 import {
   Expense,
   bySerialNo,
   describeReportFilters,
   distinctValues,
   fileTimestamp,
+  formatCurrency,
+  getExpenseTotal,
+  getMonthDateRange,
   inDateRange,
   matchesAny,
   matchesSearch,
+  plural,
   selfLabels,
+  withSerialNumbers,
 } from '../model';
 import ExpenseListTable from './ExpenseListTable';
 import ExpensePrintableReport, {
@@ -23,6 +30,7 @@ import FilterBar, {
   useSessionState,
 } from './FilterBar';
 import MultiSelectFilter, { countBy } from './MultiSelectFilter';
+import { MonthNavigator } from './peopleUi';
 
 type Filters = {
   search: string;
@@ -44,14 +52,21 @@ const NO_FILTERS: Filters = {
   methods: [],
 };
 
+/**
+ * Expenses month by month: each month starts its own list, numbered from 1,
+ * and earlier months stay available with the month picker.
+ */
 export default function TransactionPanel({
-  expenses,
+  expenses: allExpenses,
+  isDateClosed,
   payees,
   onSelect,
   onExportPdf,
 }: {
-  /** Every expense; this panel filters them. */
+  /** Every expense; this panel shows one month of them. */
   expenses: Expense[];
+  /** Whether a YYYY-MM-DD date is in a closed month. */
+  isDateClosed: (date: string) => boolean;
   /** Employee names and names already on expenses. */
   payees: string[];
   onSelect: (expense: Expense) => void;
@@ -61,6 +76,23 @@ export default function TransactionPanel({
   const [previewData, setPreviewData] = useState<PrintableExpenseReportData>();
   const set = (change: Partial<Filters>) =>
     setFilters((current) => ({ ...current, ...change }));
+  const [month, setMonthState] = useState(monthKey());
+  /** A date range belongs to one month, so it is cleared with the month. */
+  const setMonth = (next: string) => {
+    setMonthState(next);
+    set({ from: '', to: '' });
+  };
+  const monthName = formatMonthName(month);
+  const monthRange = getMonthDateRange(`${month}-01`);
+  const closed = isDateClosed(monthRange.start);
+  // The month's expenses, numbered from 1 in the order they were entered.
+  const expenses = useMemo(
+    () =>
+      withSerialNumbers(
+        allExpenses.filter((expense) => expense.date.startsWith(month)),
+      ),
+    [allExpenses, month],
+  );
   const invalidRange = Boolean(
     filters.from && filters.to && filters.from > filters.to,
   );
@@ -77,6 +109,12 @@ export default function TransactionPanel({
       matchesAny(filters.departments, expense.department) &&
       matchesAny(filters.methods, expense.paymentMethod) &&
       matchesSearch(expense, filters.search),
+  );
+  const monthTotal = roundMoney(
+    expenses.reduce((total, expense) => total + getExpenseTotal(expense), 0),
+  );
+  const shownTotal = roundMoney(
+    shown.reduce((total, expense) => total + getExpenseTotal(expense), 0),
   );
   const chips = [
     ...searchChip(filters.search, (search) => set({ search })),
@@ -106,14 +144,18 @@ export default function TransactionPanel({
     const generatedAt = new Date();
     return {
       expenses: [...shown].sort(bySerialNo),
-      filterSummary: describeReportFilters(filters.from, filters.to, [
-        ['Paid to', filters.payees.join(', ') || 'All'],
-        ['Type', filters.categories.join(', ')],
-        ['Department', filters.departments.join(', ')],
-        ['Payment method', filters.methods.join(', ')],
-        ['Search', filters.search.trim() && `"${filters.search.trim()}"`],
-      ]),
-      fileName: `expense-transactions_${fileTimestamp(generatedAt)}`,
+      filterSummary: describeReportFilters(
+        filters.from || monthRange.start,
+        filters.to || monthRange.end,
+        [
+          ['Paid to', filters.payees.join(', ') || 'All'],
+          ['Type', filters.categories.join(', ')],
+          ['Department', filters.departments.join(', ')],
+          ['Payment method', filters.methods.join(', ')],
+          ['Search', filters.search.trim() && `"${filters.search.trim()}"`],
+        ],
+      ),
+      fileName: `expense-transactions_${month}_${fileTimestamp(generatedAt)}`,
       generatedAt,
     };
   }
@@ -122,10 +164,19 @@ export default function TransactionPanel({
     <section className="panel full-panel">
       <div className="panel-heading transaction-heading">
         <div>
-          <h2>All expenses</h2>
-          <p>Search, filter, then click an expense to see or edit it.</p>
+          <h2>Expenses in {monthName}</h2>
+          <p>
+            {plural(expenses.length, 'expense')} · {formatCurrency(monthTotal)}
+            {shown.length !== expenses.length &&
+              ` · ${shown.length} shown: ${formatCurrency(shownTotal)}`}
+          </p>
         </div>
         <div className="heading-actions">
+          <MonthNavigator
+            id="transaction-month"
+            value={month}
+            onChange={setMonth}
+          />
           <button
             className="button button-secondary"
             disabled={invalidRange}
@@ -205,6 +256,12 @@ export default function TransactionPanel({
           onChange={(v) => set({ methods: v })}
         />
       </FilterBar>
+      {closed && (
+        <p className="closed-note transaction-closed">
+          {monthName} is closed, so its expenses are read-only. Reopen it in
+          Settings → Month closing to correct it.
+        </p>
+      )}
       {invalidRange && (
         <p className="form-error transaction-filter-error" role="alert">
           The From date must be on or before the To date.
@@ -215,7 +272,7 @@ export default function TransactionPanel({
         <div className="empty-state empty-action">
           <p>
             {expenses.length === 0
-              ? 'No expenses yet.'
+              ? `No expenses in ${monthName} yet.`
               : 'No expenses match these filters.'}
           </p>
           {chips.length > 0 && (
