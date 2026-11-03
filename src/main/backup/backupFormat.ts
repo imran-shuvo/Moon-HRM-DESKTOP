@@ -134,6 +134,8 @@ export type BackupPettyCash = {
   updatedAt: string;
   /** Absent in backups made before remarks were added. */
   remarks?: string;
+  /** Absent in backups made before "given by" was added. */
+  givenBy?: string;
 };
 
 export type BackupPettyCashAttachment = {
@@ -645,6 +647,7 @@ function validateData(value: unknown): BackupData {
             isNumber(r.amount) &&
             isString(r.note) &&
             (r.remarks === undefined || isString(r.remarks)) &&
+            (r.givenBy === undefined || isString(r.givenBy)) &&
             isTimestamp(r.createdAt) &&
             isTimestamp(r.updatedAt),
         );

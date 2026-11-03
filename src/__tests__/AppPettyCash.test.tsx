@@ -62,6 +62,7 @@ function entry(overrides: Partial<PettyCashTransaction>): PettyCashTransaction {
     amount: 1000,
     note: '',
     remarks: '',
+    givenBy: '',
     attachments: [],
     createdAt: 1,
     ...overrides,
@@ -138,6 +139,9 @@ describe('Petty cash', () => {
     expect(screen.getByText(/No petty cash yet/)).toBeInTheDocument();
 
     let dialog = await addEntry('↑ Give cash', KARIM, '1000', day(1));
+    fireEvent.change(within(dialog).getByLabelText('Given by (optional)'), {
+      target: { value: 'Imran' },
+    });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Give cash' }));
     expect(
       await screen.findByText('SAR 1,000.00 given to Karim.'),
@@ -153,6 +157,21 @@ describe('Petty cash', () => {
     expect(bodyRows()).toHaveLength(1);
     expect(bodyRows()[0]).toHaveTextContent(formatReportDate(day(1)));
     expect(bodyRows()[0]).toHaveTextContent('1,000.00');
+    // Who gave the cash has its own column, on screen and in the PDF.
+    expect(
+      screen.getByRole('columnheader', { name: 'GIVEN BY' }),
+    ).toBeInTheDocument();
+    expect(bodyRows()[0]).toHaveTextContent('Imran');
+    expect(memory.snapshot().pettyCash[0].givenBy).toBe('Imran');
+    fireEvent.click(screen.getByRole('button', { name: '🖨 Preview' }));
+    const givenPreview = screen.getByRole('dialog', {
+      name: 'Petty cash report preview',
+    });
+    expect(givenPreview).toHaveTextContent('GIVEN BY');
+    expect(givenPreview).toHaveTextContent('Imran');
+    fireEvent.click(
+      within(givenPreview).getByRole('button', { name: 'Close' }),
+    );
 
     // Settlements has its own form; it shows the balance before and
     // after, and keeps the vouchers.
@@ -160,6 +179,16 @@ describe('Petty cash', () => {
     expect(
       screen.queryByRole('button', { name: '↑ Give cash' }),
     ).not.toBeInTheDocument();
+    // A settlement has no giver.
+    fireEvent.click(
+      screen.getByRole('button', { name: '↓ Record settlement' }),
+    );
+    expect(
+      within(screen.getByRole('dialog')).queryByLabelText(
+        'Given by (optional)',
+      ),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     dialog = await addEntry('↓ Record settlement', KARIM, '400', day(5), [
       file('receipt-1.pdf'),
       file('receipt-2.jpg', 'image/jpeg'),

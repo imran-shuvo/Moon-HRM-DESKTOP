@@ -289,6 +289,7 @@ export function validatePettyCashInput(value: unknown): PettyCashInput {
     amount: money(input.amount, 'Amount', { allowZero: false }),
     note: text(input.note, 'Description', { max: 300 }),
     remarks: text(input.remarks, 'Remarks', { max: 1000 }),
+    givenBy: text(input.givenBy, 'Given by', { max: 80 }),
   };
 }
 

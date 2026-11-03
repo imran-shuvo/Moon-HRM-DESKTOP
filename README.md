@@ -12,7 +12,10 @@ Built with Electron, React and TypeScript.
 - **Overview**: the selected month's budget, expenses and remaining balance,
   with a spending chart, a spend-by-category breakdown and monthly totals.
 - **Transactions**: add, edit and delete expenses with invoice details, VAT
-  and attached receipts. Filter by date range, payee or text search.
+  and attached receipts. Kept by month: each month starts its own list,
+  numbered from 1, and earlier months are a click back with the month
+  picker (read-only once closed). Filter by date range, payee or text
+  search; the PDF covers the month shown.
 - **Budgets**: record budget payments received (cash or card), with filters.
 - **Reports**: daily, weekly, monthly and yearly reports. Expense, budget and
   combined finance reports export as A4 PDFs.
@@ -74,7 +77,8 @@ Built with Electron, React and TypeScript.
   new ones.
 - **Petty cash**: record cash given to a worker and amounts they settle
   with you, each with a date, a description, remarks and reference documents
-  (receipts, vouchers). It is kept by month, in three pages listed under
+  (receipts, vouchers). Cash given also records who gave it (**Given by**),
+  shown in its own column and in the PDF. It is kept by month, in three pages listed under
   Petty Cash in the sidebar: **Petty cash given** lists the cash handed out
   (with the Give cash form), **Settlements** the amounts settled with their
   vouchers (with the Record settlement form), and **Cash in hand** what each

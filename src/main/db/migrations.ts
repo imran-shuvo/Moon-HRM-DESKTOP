@@ -504,6 +504,15 @@ export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
         ON petty_cash_vouchers (employee_id);
     `,
   },
+  {
+    version: 15,
+    name: 'petty cash given by',
+    sql: `
+      -- Who handed the cash over. Entries made before stay blank.
+      ALTER TABLE petty_cash_transactions
+        ADD COLUMN given_by TEXT NOT NULL DEFAULT '';
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

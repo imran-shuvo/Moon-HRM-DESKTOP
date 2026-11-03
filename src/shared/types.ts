@@ -141,6 +141,8 @@ export type PettyCashTransaction = {
   note: string;
   /** Longer free-text remarks. */
   remarks: string;
+  /** Who handed the cash over, e.g. 'Imran'; '' when not recorded. */
+  givenBy: string;
   /** Reference documents such as receipts or a signed slip. */
   attachments: ExpenseAttachment[];
   createdAt: number;
@@ -148,7 +150,7 @@ export type PettyCashTransaction = {
 
 export type PettyCashInput = Pick<
   PettyCashTransaction,
-  'employeeId' | 'date' | 'kind' | 'amount' | 'note' | 'remarks'
+  'employeeId' | 'date' | 'kind' | 'amount' | 'note' | 'remarks' | 'givenBy'
 >;
 
 /** One bill or payment on a petty cash voucher. */

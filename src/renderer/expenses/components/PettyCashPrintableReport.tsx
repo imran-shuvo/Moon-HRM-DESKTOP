@@ -72,7 +72,8 @@ function EntriesTable({
   kind: PettyCashKind;
 }) {
   const { worker } = data;
-  const columns = worker ? 6 : 8;
+  const givenBy = kind === 'given';
+  const columns = (worker ? 6 : 8) + (givenBy ? 1 : 0);
   return (
     <table className="moon-report-table moon-report-petty-entries">
       <thead>
@@ -81,6 +82,7 @@ function EntriesTable({
           <th>DATE</th>
           {!worker && <th>WORKER</th>}
           {!worker && <th>PROJECT</th>}
+          {givenBy && <th>GIVEN BY</th>}
           <th className="amount">
             {kind === 'given' ? 'GIVEN' : 'SETTLED AMOUNT'}
           </th>
@@ -98,6 +100,7 @@ function EntriesTable({
               <td>{formatReportDate(entry.date)}</td>
               {!worker && <td>{employee?.name ?? '—'}</td>}
               {!worker && <td>{employee?.projectName || '—'}</td>}
+              {givenBy && <td>{entry.givenBy || '—'}</td>}
               <td className="amount">{formatReportAmount(entry.amount)}</td>
               <td className="amount">
                 {formatReportAmount(data.balanceAfter.get(entry.id) ?? 0)}
@@ -120,7 +123,7 @@ function EntriesTable({
       <tfoot>
         <tr>
           <td />
-          <th colSpan={worker ? 1 : 3}>
+          <th colSpan={(worker ? 1 : 3) + (givenBy ? 1 : 0)}>
             TOTAL · {data.entries.length}{' '}
             {data.entries.length === 1 ? 'ENTRY' : 'ENTRIES'}
           </th>

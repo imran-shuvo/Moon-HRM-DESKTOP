@@ -72,7 +72,7 @@ export function readBackupData(db: Database): Promise<BackupData> {
       );
       const pettyCash = await client.query(
         `SELECT id, employee_id, transaction_date, kind, amount, note,
-                created_at, updated_at, remarks
+                created_at, updated_at, remarks, given_by
          FROM petty_cash_transactions
          ORDER BY transaction_date, created_at, id`,
       );
@@ -245,6 +245,7 @@ export function readBackupData(db: Database): Promise<BackupData> {
           createdAt: iso(row.created_at),
           updatedAt: iso(row.updated_at),
           remarks: row.remarks,
+          givenBy: row.given_by,
         })),
         pettyCashAttachments: pettyCashAttachments.rows.map((row) => ({
           id: row.id,
@@ -508,13 +509,14 @@ export function restoreBackupData(
     await client.query(
       `INSERT INTO petty_cash_transactions
          (id, employee_id, transaction_date, kind, amount, note, created_at,
-          updated_at, remarks)
+          updated_at, remarks, given_by)
        SELECT id, "employeeId", "transactionDate", kind, amount, note,
-              "createdAt", "updatedAt", coalesce(remarks, '')
+              "createdAt", "updatedAt", coalesce(remarks, ''),
+              coalesce("givenBy", '')
        FROM jsonb_to_recordset($1::jsonb) AS x(
          id uuid, "employeeId" uuid, "transactionDate" date, kind text,
          amount numeric, note text, "createdAt" timestamptz,
-         "updatedAt" timestamptz, remarks text)`,
+         "updatedAt" timestamptz, remarks text, "givenBy" text)`,
       [json(data.pettyCash ?? [])],
     );
     // eslint-disable-next-line no-restricted-syntax

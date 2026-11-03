@@ -65,6 +65,7 @@ export default function PettyCashDialog({
   kind,
   defaultEmployeeId,
   employees,
+  givers,
   balances,
   onClose,
   onSubmit,
@@ -74,6 +75,8 @@ export default function PettyCashDialog({
   kind: PettyCashKind;
   defaultEmployeeId: string;
   employees: Employee[];
+  /** Suggestions for who gave the cash. */
+  givers: string[];
   /** Current balances by employee id, including `entry` as saved. */
   balances: Map<string, PettyCashBalance>;
   onClose: () => void;
@@ -156,6 +159,11 @@ export default function PettyCashDialog({
           date: String(values.get('date') ?? ''),
           note: String(values.get('note') ?? '').trim(),
           remarks: String(values.get('remarks') ?? '').trim(),
+          // Only cash given has a giver; a settlement keeps what it had.
+          givenBy:
+            kind === 'given'
+              ? String(values.get('givenBy') ?? '').trim()
+              : (entry?.givenBy ?? ''),
         },
         files,
         removed,
@@ -235,6 +243,29 @@ export default function PettyCashDialog({
                   type="date"
                 />
               </label>
+              {kind === 'given' && (
+                <label
+                  className="form-field field-wide"
+                  htmlFor="petty-given-by"
+                >
+                  Given by (optional)
+                  <input
+                    defaultValue={entry?.givenBy ?? ''}
+                    id="petty-given-by"
+                    list="petty-given-by-options"
+                    maxLength={80}
+                    name="givenBy"
+                    placeholder="Who handed over the cash, e.g. Imran"
+                  />
+                </label>
+              )}
+              <datalist id="petty-given-by-options">
+                {givers.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </datalist>
               <label className="form-field field-wide" htmlFor="petty-note">
                 Description (optional)
                 <input

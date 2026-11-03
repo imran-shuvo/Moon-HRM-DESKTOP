@@ -198,7 +198,11 @@ export default function PettyCashPanel({
     .filter(
       (entry) =>
         inDateRange(entry.date, filters.from, filters.to) &&
-        matchesWorker(entry.employeeId, [entry.note, entry.remarks]),
+        matchesWorker(entry.employeeId, [
+          entry.note,
+          entry.remarks,
+          entry.givenBy,
+        ]),
     )
     .sort((a, b) => byPettyCashOrder(b, a));
 
@@ -658,6 +662,7 @@ export default function PettyCashPanel({
                 <tr>
                   <th>DATE</th>
                   <th>WORKER</th>
+                  {view === 'given' && <th>GIVEN BY</th>}
                   <th className="amount-cell">
                     {view === 'given' ? 'GIVEN' : 'SETTLED AMOUNT'}
                   </th>
@@ -691,6 +696,13 @@ export default function PettyCashPanel({
                           </div>
                         </div>
                       </td>
+                      {view === 'given' && (
+                        <td>
+                          {entry.givenBy || (
+                            <span className="muted-cell">—</span>
+                          )}
+                        </td>
+                      )}
                       <td className={`amount-cell petty-amount-${entry.kind}`}>
                         {formatAmount(entry.amount)}
                       </td>
@@ -769,7 +781,7 @@ export default function PettyCashPanel({
               </tbody>
               <tfoot>
                 <tr>
-                  <th colSpan={2}>
+                  <th colSpan={view === 'given' ? 3 : 2}>
                     Total · {shownEntries.length}{' '}
                     {shownEntries.length === 1 ? 'entry' : 'entries'}
                   </th>
@@ -800,6 +812,10 @@ export default function PettyCashPanel({
           kind={dialog.kind}
           defaultEmployeeId={dialog.employeeId}
           employees={employees}
+          givers={distinctValues([
+            ...entries.map((entry) => entry.givenBy),
+            ...employees.map((employee) => employee.name),
+          ])}
           balances={balances}
           onClose={() => setDialog(undefined)}
           onSubmit={save}

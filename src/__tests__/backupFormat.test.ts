@@ -127,6 +127,7 @@ describe('backup file format', () => {
           createdAt,
           updatedAt: createdAt,
           remarks: 'Counted twice',
+          givenBy: 'Imran',
         },
       ],
       pettyCashAttachments: [

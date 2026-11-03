@@ -112,6 +112,7 @@ type PettyCashRow = {
   amount: number;
   note: string;
   remarks: string;
+  given_by: string;
   created_at: Date;
 };
 
@@ -240,7 +241,7 @@ const ADVANCE_COLUMNS =
   'id, employee_id, advance_date, amount, note, created_at';
 
 const PETTY_CASH_COLUMNS =
-  'id, employee_id, transaction_date, kind, amount, note, remarks, created_at';
+  'id, employee_id, transaction_date, kind, amount, note, remarks, given_by, created_at';
 
 const VOUCHER_COLUMNS = `
   id, ref_no, voucher_date, employee_id, receipts, sections, created_by,
@@ -372,6 +373,7 @@ function toPettyCash(
     amount: row.amount,
     note: row.note,
     remarks: row.remarks,
+    givenBy: row.given_by,
     attachments,
     createdAt: row.created_at.getTime(),
   };
@@ -1238,8 +1240,9 @@ export function createPettyCash(
     await lockEmployees(client, [input.employeeId]);
     const { rows } = await client.query<{ id: string }>(
       `INSERT INTO petty_cash_transactions
-         (employee_id, transaction_date, kind, amount, note, remarks)
-       VALUES ($1, $2, $3, $4, $5, $6)
+         (employee_id, transaction_date, kind, amount, note, remarks,
+          given_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id`,
       [
         input.employeeId,
@@ -1248,6 +1251,7 @@ export function createPettyCash(
         input.amount,
         input.note,
         input.remarks,
+        input.givenBy,
       ],
     );
     await insertPettyCashAttachments(client, rows[0].id, files);
@@ -1275,7 +1279,7 @@ export function updatePettyCash(
     await client.query(
       `UPDATE petty_cash_transactions SET
          employee_id = $2, transaction_date = $3, kind = $4, amount = $5,
-         note = $6, remarks = $7, updated_at = now()
+         note = $6, remarks = $7, given_by = $8, updated_at = now()
        WHERE id = $1`,
       [
         id,
@@ -1285,6 +1289,7 @@ export function updatePettyCash(
         input.amount,
         input.note,
         input.remarks,
+        input.givenBy,
       ],
     );
     // Only this entry's files, so an id from another entry is ignored.
