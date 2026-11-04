@@ -1361,3 +1361,6 @@ th.sheet-total.status-vacation, th.sheet-total.status-holiday { color: var(--sta
   .voucher-table .voucher-section-subtotal { break-before: avoid; }
 }
 .transaction-closed { margin: 0 0 12px; font-size: 11px; }
+.budget-month-panel { margin-bottom: 15px; padding: 18px 20px; }
+.budget-month-panel .petty-cash-totals { margin-bottom: 0; }
+.budget-closed { margin: 14px 0 0; font-size: 11px; }

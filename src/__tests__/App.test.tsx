@@ -739,6 +739,10 @@ describe('App', () => {
 
     await addPayment('Acme Ltd', '2026-01-03', 'Cash');
     await addPayment('Northwind', '2026-02-03', 'Card');
+    // Budgets shows one month at a time.
+    fireEvent.change(screen.getByLabelText('Month'), {
+      target: { value: '2026-01' },
+    });
     tickFilter('Payee', 'Acme Ltd');
     fireEvent.change(screen.getByLabelText('Filter budgets from date'), {
       target: { value: '2026-01-01' },
@@ -751,6 +755,71 @@ describe('App', () => {
     const table = within(screen.getByRole('table'));
     expect(table.getByText('Acme Ltd')).toBeInTheDocument();
     expect(table.queryByText('Northwind')).not.toBeInTheDocument();
+  });
+
+  it('keeps the budget by month and carries what remains forward', async () => {
+    const expense = (id: string, date: string, amount: number) => ({
+      id,
+      date,
+      payee: 'Vendor',
+      description: 'Materials',
+      category: 'Materials',
+      department: 'Operations',
+      paymentMethod: 'Cash',
+      amount,
+    });
+    const budget = (id: string, date: string, amount: number) => ({
+      id,
+      date,
+      amount,
+      paidBy: 'Owner',
+      paymentMethod: 'Cash' as const,
+      note: '',
+    });
+    await renderApp({
+      expenses: [
+        expense('sep-expense', '2026-09-15', 400),
+        expense('oct-expense', '2026-10-10', 200),
+      ],
+      budgetTransactions: [
+        budget('sep-budget', '2026-09-01', 1000),
+        budget('oct-budget', '2026-10-02', 500),
+      ],
+    });
+    fireEvent.click(screen.getByRole('button', { name: /budgets/i }));
+
+    // October: 600 left from September, 500 received, 200 spent.
+    let summary = screen.getByLabelText('Budget for October 2026');
+    expect(summary).toHaveTextContent(
+      /Remaining from September 2026SAR 600\.00/,
+    );
+    expect(summary).toHaveTextContent(/Received in October 2026SAR 500\.00/);
+    expect(summary).toHaveTextContent(/Expenses in October 2026SAR 200\.00/);
+    expect(summary).toHaveTextContent(/Remaining nowSAR 900\.00/);
+    let rows = within(screen.getByRole('table')).getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent('Oct 2, 2026');
+
+    // The PDF ends with the month's budget.
+    fireEvent.click(screen.getByRole('button', { name: 'Preview PDF' }));
+    const preview = screen.getByRole('dialog', { name: 'Preview budget PDF' });
+    expect(preview).toHaveTextContent('2. October 2026 budget');
+    expect(preview).toHaveTextContent(/Remaining budget900\.00/);
+    fireEvent.click(within(preview).getByRole('button', { name: 'Close' }));
+
+    // September is closed and kept: its 600 was carried into October.
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+    summary = screen.getByLabelText('Budget for September 2026');
+    expect(summary).toHaveTextContent(
+      /Received in September 2026SAR 1,000\.00/,
+    );
+    expect(summary).toHaveTextContent(/Expenses in September 2026SAR 400\.00/);
+    expect(summary).toHaveTextContent(
+      /Remaining end of September 2026SAR 600\.00Carried into October 2026/,
+    );
+    rows = within(screen.getByRole('table')).getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent('Sep 1, 2026');
   });
 
   it('offers a budget export action', async () => {
@@ -783,6 +852,9 @@ describe('App', () => {
     const memory = await renderApp({ expenses: [], budgetTransactions });
     const savePdf = jest.spyOn(memory.api.reports, 'savePdf');
     fireEvent.click(screen.getByRole('button', { name: /budgets/i }));
+    fireEvent.change(screen.getByLabelText('Month'), {
+      target: { value: '2026-01' },
+    });
     tickFilter('Payee', 'Acme Ltd');
     fireEvent.click(screen.getByRole('button', { name: 'Preview PDF' }));
 
@@ -796,7 +868,7 @@ describe('App', () => {
     expect(screen.getByText('1. Budget Transactions')).toBeInTheDocument();
     // Only the filtered budgets are printed, with the filters described.
     expect(
-      screen.getByText('Period: All dates · Payee: Acme Ltd'),
+      screen.getByText('Period: 01-Jan-2026 to 31-Jan-2026 · Payee: Acme Ltd'),
     ).toBeInTheDocument();
     expect(screen.getByText('12-Jan-2026')).toBeInTheDocument();
     expect(screen.getAllByText('1,200.00').length).toBeGreaterThan(0);
@@ -811,7 +883,7 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Print / Save PDF' }));
     await waitFor(() => expect(savePdf).toHaveBeenCalledTimes(1));
     expect(savePdf.mock.calls[0][0]).toMatch(
-      /^budget-transactions_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/,
+      /^budget-transactions_2026-01_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/,
     );
     expect(await screen.findByText(/PDF saved:/)).toBeInTheDocument();
   });
@@ -1489,6 +1561,10 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
     fireEvent.click(screen.getByRole('button', { name: /budgets/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+    expect(
+      screen.getByText(/September 2026 is closed, so its budget is read-only/),
+    ).toBeInTheDocument();
     expect(
       within(screen.getByRole('table')).getByText('🔒 Closed'),
     ).toBeInTheDocument();

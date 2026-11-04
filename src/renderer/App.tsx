@@ -1093,6 +1093,7 @@ export default function App({ api }: { api: FinanceApi }) {
             {section === 'Budgets' && (
               <BudgetManagementPanel
                 payments={budgetTransactions}
+                expenses={expenses}
                 payers={employeeNameList}
                 isDateClosed={isDateClosed}
                 onAddPayment={openBudgetPaymentDialog}

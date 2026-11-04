@@ -9,6 +9,16 @@ export type PrintableBudgetReportData = {
   payments: BudgetTransaction[];
   /** e.g. "Period: All dates · Payee: Acme Ltd" */
   filterSummary?: string;
+  /** For one month's budget: what it started with, received, spent and left. */
+  monthSummary?: {
+    monthName: string;
+    previousMonthName: string;
+    broughtForward: number;
+    received: number;
+    spent: number;
+    remaining: number;
+    closed: boolean;
+  };
   fileName: string;
   generatedAt: Date;
 };
@@ -76,6 +86,49 @@ export default function BudgetPrintableReport({
         <h2>1. Budget Transactions</h2>
         <BudgetTransactionsTable payments={data.payments} total={total} />
       </section>
+      {data.monthSummary && (
+        <section className="moon-report-section">
+          <h2>2. {data.monthSummary.monthName} budget</h2>
+          <table className="moon-report-table moon-report-summary">
+            <tbody>
+              <tr>
+                <td>Remaining from {data.monthSummary.previousMonthName}</td>
+                <td className="amount">
+                  {formatReportAmount(data.monthSummary.broughtForward)}
+                </td>
+              </tr>
+              <tr>
+                <td>Budget received</td>
+                <td className="amount">
+                  {formatReportAmount(data.monthSummary.received)}
+                </td>
+              </tr>
+              <tr>
+                <td>Expenses</td>
+                <td className="amount">
+                  {formatReportAmount(data.monthSummary.spent)}
+                </td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr
+                className={
+                  data.monthSummary.remaining < 0 ? 'negative' : undefined
+                }
+              >
+                <th>
+                  {data.monthSummary.closed
+                    ? 'Remaining (carried forward)'
+                    : 'Remaining budget'}
+                </th>
+                <td className="amount">
+                  {formatReportAmount(data.monthSummary.remaining)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </section>
+      )}
     </article>
   );
 }

@@ -1,13 +1,23 @@
 import { useMemo, useState } from 'react';
 import {
+  formatMonthName,
+  monthKey,
+  previousMonthKey,
+} from '../../../shared/months';
+import {
   BudgetTransaction,
+  Expense,
   bySerialNo,
+  calculateBudgetForPeriod,
   describeReportFilters,
   fileTimestamp,
   formatCurrency,
+  getMonthDateRange,
   inDateRange,
   matchesAny,
+  plural,
   selfLabels,
+  withSerialNumbers,
 } from '../model';
 import BudgetPaymentsTable from './BudgetPaymentsTable';
 import BudgetPrintableReport, {
@@ -22,6 +32,7 @@ import FilterBar, {
   useSessionState,
 } from './FilterBar';
 import MultiSelectFilter, { countBy } from './MultiSelectFilter';
+import { MonthNavigator } from './peopleUi';
 
 type Filters = {
   search: string;
@@ -42,8 +53,15 @@ const NO_FILTERS: Filters = {
 const METHODS = ['Cash', 'Card'];
 const METHOD_LABELS: Record<string, string> = { Cash: 'Cash', Card: 'Card' };
 
+/**
+ * The budget month by month: what was left from last month, the budgets
+ * received and expenses in the month, and what remains. When a month
+ * closes its remaining budget is carried into the next; earlier months are
+ * kept and reached with the month picker.
+ */
 export default function BudgetManagementPanel({
-  payments,
+  payments: allPayments,
+  expenses,
   payers: savedPayers,
   isDateClosed,
   onAddPayment,
@@ -52,6 +70,8 @@ export default function BudgetManagementPanel({
   onExportPdf,
 }: {
   payments: BudgetTransaction[];
+  /** Every expense, for what each month spent. */
+  expenses: Expense[];
   /** Employee names. */
   payers: string[];
   isDateClosed: (date: string) => boolean;
@@ -65,15 +85,47 @@ export default function BudgetManagementPanel({
     setFilters((current) => ({ ...current, ...change }));
   const { from: fromDate, to: toDate } = filters;
   const [previewData, setPreviewData] = useState<PrintableBudgetReportData>();
+  const [month, setMonthState] = useState(monthKey());
+  /** A date range belongs to one month, so it is cleared with the month. */
+  const setMonth = (next: string) => {
+    setMonthState(next);
+    set({ from: '', to: '' });
+  };
+  const current = month === monthKey();
+  const monthName = formatMonthName(month);
+  const previousMonthName = formatMonthName(previousMonthKey(month));
+  const nextMonthName = formatMonthName(
+    monthKey(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1)),
+  );
+  const monthRange = getMonthDateRange(`${month}-01`);
+  const closed = isDateClosed(monthRange.start);
+  const budget = useMemo(
+    () =>
+      calculateBudgetForPeriod(
+        expenses,
+        allPayments,
+        monthRange.start,
+        monthRange.end,
+      ),
+    [expenses, allPayments, monthRange.start, monthRange.end],
+  );
+  // The month's budgets, numbered from 1 in the order they were entered.
+  const payments = useMemo(
+    () =>
+      withSerialNumbers(
+        allPayments.filter((payment) => payment.date.startsWith(month)),
+      ),
+    [allPayments, month],
+  );
   const payers = useMemo(
     () =>
       [
         ...new Set([
           ...savedPayers,
-          ...payments.map((payment) => payment.paidBy || 'Company'),
+          ...allPayments.map((payment) => payment.paidBy || 'Company'),
         ]),
       ].sort((a, b) => a.localeCompare(b)),
-    [savedPayers, payments],
+    [savedPayers, allPayments],
   );
   const needle = filters.search.trim().toLowerCase();
   const filteredPayments = payments.filter(
@@ -100,44 +152,87 @@ export default function BudgetManagementPanel({
     ),
   ];
   const invalidRange = Boolean(fromDate && toDate && fromDate > toDate);
-  const received = filteredPayments.reduce(
-    (total, payment) => total + payment.amount,
-    0,
-  );
 
   /** The PDF contains exactly the budgets listed under these filters. */
   function createBudgetReportData(): PrintableBudgetReportData {
     const generatedAt = new Date();
     return {
       payments: [...filteredPayments].sort(bySerialNo),
-      filterSummary: describeReportFilters(fromDate, toDate, [
-        ['Payee', filters.payers.join(', ') || 'All'],
-        ['Method', filters.methods.join(', ')],
-        ['Search', filters.search.trim() && `"${filters.search.trim()}"`],
-      ]),
-      fileName: `budget-transactions_${fileTimestamp(generatedAt)}`,
+      filterSummary: describeReportFilters(
+        fromDate || monthRange.start,
+        toDate || monthRange.end,
+        [
+          ['Payee', filters.payers.join(', ') || 'All'],
+          ['Method', filters.methods.join(', ')],
+          ['Search', filters.search.trim() && `"${filters.search.trim()}"`],
+        ],
+      ),
+      monthSummary: {
+        monthName,
+        previousMonthName,
+        broughtForward: budget.broughtForward,
+        received: budget.receivedInPeriod,
+        spent: budget.expensesInPeriod,
+        remaining: budget.remainingBudget,
+        closed,
+      },
+      fileName: `budget-transactions_${month}_${fileTimestamp(generatedAt)}`,
       generatedAt,
     };
   }
 
   return (
     <>
-      <section className="budget-summary panel budget-ledger-summary">
-        <div>
-          <p className="stat-label">Total budgets received</p>
-          <strong>{formatCurrency(received)}</strong>
-          <p className="stat-foot">
-            {filteredPayments.length} budget
-            {filteredPayments.length === 1 ? '' : 's'} in this list
-          </p>
+      <section className="panel budget-month-panel">
+        <div className="payroll-header">
+          <MonthNavigator id="budget-month" value={month} onChange={setMonth} />
+          <button
+            className="button button-primary push-right"
+            onClick={onAddPayment}
+            type="button"
+          >
+            <span aria-hidden="true">＋</span> Add budget
+          </button>
         </div>
-        <button
-          className="button button-primary"
-          onClick={onAddPayment}
-          type="button"
+        <div
+          aria-label={`Budget for ${monthName}`}
+          className="payroll-totals petty-cash-totals"
         >
-          <span aria-hidden="true">＋</span> Add budget
-        </button>
+          <div>
+            <span>Remaining from {previousMonthName}</span>
+            <strong>{formatCurrency(budget.broughtForward)}</strong>
+            <small>Carried in when {monthName} began</small>
+          </div>
+          <div className="total-paid">
+            <span>Received in {monthName}</span>
+            <strong>{formatCurrency(budget.receivedInPeriod)}</strong>
+            <small>{plural(payments.length, 'budget')} received</small>
+          </div>
+          <div>
+            <span>Expenses in {monthName}</span>
+            <strong>{formatCurrency(budget.expensesInPeriod)}</strong>
+            <small>Of {formatCurrency(budget.totalBudget)} available</small>
+          </div>
+          <div className="total-unpaid">
+            <span>
+              {current ? 'Remaining now' : `Remaining end of ${monthName}`}
+            </span>
+            <strong>{formatCurrency(budget.remainingBudget)}</strong>
+            <small>
+              {closed
+                ? `Carried into ${nextMonthName}`
+                : 'Carries into next month'}
+            </small>
+          </div>
+        </div>
+        {closed && (
+          <p className="closed-note budget-closed">
+            {monthName} is closed, so its budget is read-only. Its remaining{' '}
+            {formatCurrency(budget.remainingBudget)} was carried into{' '}
+            {nextMonthName}. Reopen it in Settings → Month closing to correct
+            it.
+          </p>
+        )}
       </section>
       <section className="panel full-panel budget-ledger-panel">
         <div className="panel-heading transaction-heading">
@@ -220,7 +315,7 @@ export default function BudgetManagementPanel({
           <div className="empty-state empty-action">
             <p>
               {payments.length === 0
-                ? 'No budgets yet.'
+                ? `No budgets received in ${monthName} yet.`
                 : 'No budget payments match these filters.'}
             </p>
             {chips.length > 0 && (

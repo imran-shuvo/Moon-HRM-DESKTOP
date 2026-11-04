@@ -16,7 +16,11 @@ Built with Electron, React and TypeScript.
   numbered from 1, and earlier months are a click back with the month
   picker (read-only once closed). Filter by date range, payee or text
   search; the PDF covers the month shown.
-- **Budgets**: record budget payments received (cash or card), with filters.
+- **Budgets**: record budget payments received (cash or card), kept by
+  month. Each month shows what remained from last month, the budgets
+  received and expenses in it, and what remains; when the month closes its
+  remaining budget is carried into the next. Earlier months stay a click
+  back with the month picker, and the PDF ends with the month's budget.
 - **Reports**: daily, weekly, monthly and yearly reports. Expense, budget and
   combined finance reports export as A4 PDFs.
 - **Month closing**: each month becomes read-only when it ends, and its
