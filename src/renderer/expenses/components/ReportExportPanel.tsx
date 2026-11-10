@@ -20,7 +20,10 @@ export type PrintableReportData = {
   /** Budget left over from before the report period. */
   openingBalance: number;
   totalReceived: number;
+  /** Previous remaining amount plus the budget received in the period. */
+  totalBalance: number;
   totalExpenses: number;
+  /** Total balance less the expenses in the period. */
   remainingBudget: number;
   fromDate: string;
   toDate: string;
@@ -59,6 +62,7 @@ export function createPrintableReportData(
     expenses: reportExpenses,
     openingBalance,
     totalReceived,
+    totalBalance: openingBalance + totalReceived,
     totalExpenses,
     remainingBudget: openingBalance + totalReceived - totalExpenses,
     fromDate,
@@ -70,7 +74,21 @@ export function createPrintableReportData(
   };
 }
 
+/** True when the range covers exactly one calendar month. */
+function isWholeMonth(fromDate: string, toDate: string) {
+  if (
+    !fromDate.endsWith('-01') ||
+    fromDate.slice(0, 7) !== toDate.slice(0, 7)
+  ) {
+    return false;
+  }
+  const [year, month] = fromDate.split('-').map(Number);
+  const lastDay = new Date(year, month, 0).getDate();
+  return Number(toDate.slice(8, 10)) === lastDay;
+}
+
 export function PrintableReport({ data }: { data: PrintableReportData }) {
+  const unit = isWholeMonth(data.fromDate, data.toDate) ? 'month' : 'period';
   return (
     <article className="standalone-print-report moon-report">
       <ReportBrandHeader title="BUDGET & EXPENSE REPORT" />
@@ -104,22 +122,31 @@ export function PrintableReport({ data }: { data: PrintableReportData }) {
             </tr>
           </thead>
           <tbody>
-            {data.openingBalance !== 0 && (
-              <tr>
-                <td>Balance brought forward</td>
-                <td className="amount">
-                  {formatReportAmount(data.openingBalance)}
-                </td>
-              </tr>
-            )}
             <tr>
-              <td>Total Budget</td>
+              <td>Previous {unit} remaining amount</td>
+              <td className="amount">
+                {formatReportAmount(data.openingBalance)}
+              </td>
+            </tr>
+            <tr>
+              <td>Add: Total budget this {unit}</td>
               <td className="amount">
                 {formatReportAmount(data.totalReceived)}
               </td>
             </tr>
+            <tr className="subtotal">
+              <th>
+                TOTAL BALANCE
+                <small>
+                  Previous {unit} remaining amount + total budget this {unit}
+                </small>
+              </th>
+              <td className="amount">
+                {formatReportAmount(data.totalBalance)}
+              </td>
+            </tr>
             <tr>
-              <td>Less: Total Expenses</td>
+              <td>Less: Total expenses this {unit}</td>
               <td className="amount">
                 {formatReportAmount(data.totalExpenses)}
               </td>
@@ -127,7 +154,10 @@ export function PrintableReport({ data }: { data: PrintableReportData }) {
           </tbody>
           <tfoot>
             <tr className={data.remainingBudget < 0 ? 'negative' : undefined}>
-              <th>TOTAL REMAINING</th>
+              <th>
+                TOTAL REMAINING
+                <small>Total balance − total expenses this {unit}</small>
+              </th>
               <td className="amount">
                 {formatReportAmount(data.remainingBudget)}
               </td>

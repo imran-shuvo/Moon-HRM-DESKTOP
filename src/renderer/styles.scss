@@ -558,6 +558,8 @@ h1 { margin-bottom: 5px; font: 700 25px var(--font-ui); letter-spacing: -.8px; }
   .moon-report-summary tfoot th, .moon-report-summary tfoot td { font-size: 12pt; }
   .moon-report-summary tfoot td { color: #222; }
   .moon-report-summary tr.negative td { color: #c2483d; }
+  .moon-report-summary tr.subtotal th, .moon-report-summary tr.subtotal td { border-top: 1px solid #222; font-weight: 700; }
+  .moon-report-summary th small { display: block; font-size: 8pt; font-weight: 400; color: #666; }
 
   @media print {
     @page { size: A4 portrait; }

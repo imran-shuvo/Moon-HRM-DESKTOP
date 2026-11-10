@@ -983,7 +983,7 @@ describe('App', () => {
     );
 
     const totals = within(dialog.getByRole('table', { name: 'Report totals' }));
-    const amountFor = (label: string) =>
+    const amountFor = (label: string | RegExp) =>
       totals.getByText(label).closest('tr')?.querySelector('.amount')
         ?.textContent;
     const { remainingBudget } = calculateBudgetForPeriod(
@@ -995,12 +995,19 @@ describe('App', () => {
     const priorExpenses = expenses
       .filter((expense) => expense.date < sampleDate)
       .reduce((sum, expense) => sum + getExpenseTotal(expense), 0);
-    expect(amountFor('Balance brought forward')).toBe(
+    expect(amountFor('Previous period remaining amount')).toBe(
       formatReportAmount(1000 - priorExpenses),
     );
-    expect(amountFor('Total Budget')).toBe(formatReportAmount(5000));
-    expect(amountFor('Less: Total Expenses')).toBe(formatReportAmount(3525));
-    expect(amountFor('TOTAL REMAINING')).toBe(
+    expect(amountFor('Add: Total budget this period')).toBe(
+      formatReportAmount(5000),
+    );
+    expect(amountFor(/^TOTAL BALANCE/)).toBe(
+      formatReportAmount(1000 - priorExpenses + 5000),
+    );
+    expect(amountFor('Less: Total expenses this period')).toBe(
+      formatReportAmount(3525),
+    );
+    expect(amountFor(/^TOTAL REMAINING/)).toBe(
       formatReportAmount(remainingBudget),
     );
   });
